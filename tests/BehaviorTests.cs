@@ -38,6 +38,10 @@ namespace ClearFolder.Tests {
                 var desktopLayout=Layout.Calculate(new Point(136,149),4,0,work,1.5f,new Size(115,147),72);
                 Check(desktopLayout.Icon.Size==new Size(86,86)&&desktopLayout.Bounds.X+desktopLayout.Icon.X+43==172&&desktopLayout.Bounds.Y+desktopLayout.Icon.Y+43==185,"collapsed folder grows twenty percent around native icon center");
                 var adjacent=Layout.Calculate(new Point(251,149),4,0,work,1.5f,new Size(115,147),72);
+                var slotPadding=new Point(desktopLayout.EntrySlot.Left+1,desktopLayout.EntrySlot.Top+1);
+                Check(desktopLayout.Contains(slotPadding,false),"collapsed entry intercepts native placeholder cell padding");
+                Check(!desktopLayout.Contains(new Point(desktopLayout.EntrySlot.Right+1,desktopLayout.EntrySlot.Top+1),false),"collapsed entry does not intercept neighboring desktop cell");
+                Check(desktopLayout.EntrySlot.Right<=adjacent.EntrySlot.Left+adjacent.Bounds.X-desktopLayout.Bounds.X,"adjacent native entry input cells do not overlap");
                 Check(desktopLayout.Icon.Width<115&&desktopLayout.Bounds.X+desktopLayout.Icon.Right<adjacent.Bounds.X+adjacent.Icon.Left,"enlarged folder remains within one desktop grid cell");
                 var corner=Layout.Calculate(new Point(0,2),4,0,work,1.5f,new Size(115,147),72);
                 Check(corner.Bounds.X+corner.Icon.X>=work.Left&&corner.Bounds.Y+corner.Icon.Y>=work.Top,"enlarged edge anchor keeps visible glass inside work area");

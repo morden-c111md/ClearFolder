@@ -12,6 +12,19 @@ namespace ClearFolder.Tests {
         static void Check(bool ok,string name){if(!ok)throw new Exception("FAIL: "+name);checks++;Console.WriteLine("PASS: "+name);}
         public static int Run(string root) {
             checks=0;Directory.CreateDirectory(root);
+            string invisiblePath=Path.Combine(root,"transparent.ico");DesktopPlaceholder.WriteTransparentIcon(invisiblePath);
+            using(var invisible=new Icon(invisiblePath,32,32))using(var pixels=invisible.ToBitmap()) {
+                bool clear=true;for(int y=0;y<pixels.Height;y++)for(int x=0;x<pixels.Width;x++)if(pixels.GetPixel(x,y).A!=0)clear=false;
+                Check(clear,"desktop placeholder ICO decodes to fully transparent pixels");
+            }
+            string placeholderId="0123456789abcdef0123456789abcdef";
+            string blankShortcut=Path.Combine(root,DesktopPlaceholder.BlankName(placeholderId)+".lnk");
+            string executable=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows),"notepad.exe");
+            DesktopPlaceholder.CreateShortcut(blankShortcut,executable,invisiblePath,placeholderId);
+            Check(DesktopPlaceholder.HasIdentity(blankShortcut,placeholderId),"Unicode blank shortcut retains identity after native reload");
+            DesktopPlaceholder.CreateShortcut(blankShortcut,executable,invisiblePath,placeholderId);
+            Check(DesktopPlaceholder.HasIdentity(blankShortcut,placeholderId),"Unicode blank shortcut supports restart update");
+            Check(!DesktopPlaceholder.HasIdentity(blankShortcut,"ffffffffffffffffffffffffffffffff"),"blank shortcut rejects another deck identity");
             Check(DesktopGrid.ScaleIconSize(48,96)==48,"100 percent desktop icon physical size");
             Check(DesktopGrid.ScaleIconSize(48,144)==72,"150 percent desktop icon physical size");
             Check(DesktopGrid.ScaleIconSize(48,192)==96,"200 percent desktop icon physical size");
