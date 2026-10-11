@@ -1,0 +1,14 @@
+/artifacts/
+/data/
+.env
+.env.*
+*.pem
+*.key
+*.pfx
+*.p12
+*.user
+*.suo
+.vs/
+.vscode/
+Thumbs.db
+Desktop.ini
