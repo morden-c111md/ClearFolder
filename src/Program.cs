@@ -26,7 +26,7 @@ namespace ClearFolder {
                 if(args.Contains("--ripple-menu-test")){return RippleMenuDiagnostics.Run(root)?0:2;}
                 if(args.Contains("--animation-test")){return RevisionDiagnostics.Run(root)?0:2;}
                 bool created;
-                using(var mutex=new Mutex(true,"Local\\ClearFolder.Desktop",out created)) {
+                using(var mutex=new Mutex(true,"Local\\Morden.ClearFolder.20261010",out created)) {
                     if(!created){MessageBox.Show("ClearFolder 已在运行，请从任务栏通知区域的图标打开菜单。","ClearFolder");return 0;}
                     var store=new Store(Path.Combine(root,"data"));store.Load();
                     if(args.Contains("--enable-ripples")){store.State.RippleStrength=1.8;store.Save();}
@@ -58,6 +58,10 @@ namespace ClearFolder {
         bool force;
         public TrayController(Store state,string project) {
             store=state;root=project;
+            foreach(var deck in store.State.Decks) {
+                try { DesktopPlaceholder.Ensure(store,deck,Path.Combine(root,"artifacts","ClearFolder.exe")); }
+                catch(Exception error) { MessageBox.Show("无法创建桌面网格占位图标，收纳文件夹仍会运行但新图标可能覆盖其位置。\n"+error.Message,"桌面占位创建失败",MessageBoxButtons.OK,MessageBoxIcon.Warning); }
+            }
             foreach(var deck in store.State.Decks)windows.Add(new FolderWindow(store,deck));
             try{store.Save();}catch(Exception error){MessageBox.Show("网格位置暂未保存，下次启动仍会重新吸附。\n"+error.Message,"布局保存失败");}
             menu.Items.Add("定位所有文件夹（短暂显示在应用上方）",null,delegate{foreach(var w in windows)w.Locate();});
@@ -102,7 +106,7 @@ namespace ClearFolder {
             var work=Screen.FromPoint(Cursor.Position).WorkingArea;
             var deck=new Deck {Name=name,X=work.Left+220+(windows.Count%6)*90,Y=work.Top+100+(windows.Count/6)*100};
             store.State.Decks.Add(deck);
-            try{store.Save();windows.Add(new FolderWindow(store,deck){ForceVisible=force});}
+            try{DesktopPlaceholder.Ensure(store,deck,Path.Combine(root,"artifacts","ClearFolder.exe"));store.Save();windows.Add(new FolderWindow(store,deck){ForceVisible=force});}
             catch(Exception error){store.State.Decks.Remove(deck);MessageBox.Show(error.Message,"创建失败");}
         }
         protected override void ExitThreadCore() {
@@ -118,5 +122,4 @@ namespace ClearFolder {
         }
     }
 }
-
 

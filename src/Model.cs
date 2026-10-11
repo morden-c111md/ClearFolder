@@ -19,6 +19,7 @@ namespace ClearFolder {
         [DataMember] public string Name="收纳文件夹";
         [DataMember] public int X=280;
         [DataMember] public int Y=100;
+        [DataMember] public string PlaceholderPath;
         [DataMember] public List<Entry> Entries=new List<Entry>();
     }
     [DataContract] public sealed class Settings {
@@ -38,6 +39,7 @@ namespace ClearFolder {
     }
     public sealed class Store {
         public readonly string Root;
+        internal string DesktopDirectory { get { return desktop; } }
         readonly string desktop,publicDesktop;
         bool transferActive,unresolvedTransfer;
         public Settings State;
