@@ -11,4 +11,5 @@
 - File moves require explicit user interaction, retain recovery journals, and never overwrite conflicts.
 - Startup registration is opt-in. Do not change other applications' registry settings.
 - Native diagnostics require an interactive Windows desktop and may temporarily move the pointer.
+- Each deck keeps a visible `.lnk` on the current user's Desktop as an Explorer-owned grid reservation; the glass window covers that shortcut and uses its measured grid position.
 - Temporary test data is retained for inspection; cleanup requires the owner's consent.
