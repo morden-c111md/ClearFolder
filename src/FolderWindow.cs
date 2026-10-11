@@ -51,7 +51,7 @@ namespace ClearFolder {
             internal double[] CaptureMilliseconds,UploadMilliseconds,UpdateIntervals;
         }
         public FolderWindow(Store data,Deck deck) {
-            store=data;Deck=deck;grid=DesktopGrid.Read();
+            store=data;Deck=deck;grid=DesktopGrid.Read(Deck.PlaceholderPath);
             surface=new GlassSurface();
             Recalculate();
             var hwnd=Handle;
@@ -85,7 +85,8 @@ namespace ClearFolder {
         internal void Recalculate() {
             Point desired=new Point(Deck.X,Deck.Y);Screen screen=Screen.FromPoint(desired);
             var reserved=store.State.Decks.Where(d=>d!=Deck).Select(d=>new Point(d.X,d.Y));
-            Point anchor=grid.Snap(desired,screen.WorkingArea,reserved);Deck.X=anchor.X;Deck.Y=anchor.Y;
+            grid=DesktopGrid.Read(Deck.PlaceholderPath);
+            Point anchor=grid.PlaceholderPosition.HasValue?grid.PlaceholderPosition.Value:grid.Snap(desired,screen.WorkingArea,reserved);Deck.X=anchor.X;Deck.Y=anchor.Y;
             float scale;using(var graphics=Graphics.FromHwnd(IntPtr.Zero))scale=graphics.DpiX/96f;
             scale=Math.Max(.75f,Math.Min(2.5f,scale));
             layout=ClearFolder.Layout.Calculate(anchor,Deck.Entries.Count,page,screen.WorkingArea,scale,grid.Cell,grid.IconSize);
@@ -216,7 +217,7 @@ namespace ClearFolder {
             ignoreMouseUp=false;
             int index=HitCell(e.Location);
             if(index>=0){pressedEntry=Deck.Entries[layout.Start+index];pressed=true;downMouse=Cursor.Position;surface.CaptureMouse();return;}
-            if(layout.Icon.Contains(e.Location)||layout.Label.Contains(e.Location)) {
+            if(layout.EntrySlot.Contains(e.Location)) {
                 grid=DesktopGrid.Read();pressed=true;downMouse=Cursor.Position;downAnchor=new Point(Deck.X,Deck.Y);surface.CaptureMouse();
             }
         }
@@ -230,11 +231,11 @@ namespace ClearFolder {
             }
             if(dragging) {
                 Point desired=new Point(downAnchor.X+current.X-downMouse.X,downAnchor.Y+current.Y-downMouse.Y),snapped;
-                try{snapped=grid.Snap(desired,Screen.FromPoint(desired).WorkingArea,store.State.Decks.Where(d=>d!=Deck).Select(d=>new Point(d.X,d.Y)));}
+                try{grid=DesktopGrid.Read(Deck.PlaceholderPath);snapped=grid.Snap(desired,Screen.FromPoint(desired).WorkingArea,store.State.Decks.Where(d=>d!=Deck).Select(d=>new Point(d.X,d.Y)));}
                 catch(InvalidOperationException){return;}
                 if(snapped==new Point(Deck.X,Deck.Y))return;
                 Point previous=new Point(Deck.X,Deck.Y);Deck.X=snapped.X;Deck.Y=snapped.Y;
-                try{hover.Close();shownExpanded=false;surface.SetExpanded(false,true);Recalculate();}
+                try{if(!string.IsNullOrEmpty(Deck.PlaceholderPath))DesktopGrid.PositionPlaceholder(Deck.PlaceholderPath,snapped);hover.Close();shownExpanded=false;surface.SetExpanded(false,true);Recalculate();}
                 catch(Exception error){Deck.X=previous.X;Deck.Y=previous.Y;RunSafe(delegate{throw new InvalidOperationException("不能放置到该格子，保留原位置。",error);});}
             }
         }

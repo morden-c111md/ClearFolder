@@ -17,7 +17,7 @@ namespace ClearFolder {
                 var store=new Store(Path.Combine(directory,"store"));store.Load();Deck deck=store.State.Decks[0];
                 var item=new Entry {Managed=true,Name="Synthetic owned project",OriginalPath=Path.Combine(directory,"original.txt")};
                 item.Path=Path.Combine(store.Root,"files",deck.Id,item.Id,"synthetic.txt");Directory.CreateDirectory(Path.GetDirectoryName(item.Path));File.WriteAllText(item.Path,"synthetic payload");
-                deck.Entries.Add(item);store.Save();controller=new TrayController(store,root);
+                deck.Entries.Add(item);store.Save();controller=new TrayController(store,root,false);
                 var flags=BindingFlags.Instance|BindingFlags.NonPublic;
                 var menu=(ContextMenuStrip)typeof(TrayController).GetField("menu",flags).GetValue(controller);
                 var exit=(ToolStripMenuItem)typeof(TrayController).GetField("exitItem",flags).GetValue(controller);

@@ -56,9 +56,9 @@ namespace ClearFolder {
         readonly ToolStripMenuItem exitItem;
         readonly ToolStripMenuItem retryTransferItem;
         bool force;
-        public TrayController(Store state,string project) {
+        public TrayController(Store state,string project,bool reserveDesktop=true) {
             store=state;root=project;
-            foreach(var deck in store.State.Decks) {
+            foreach(var deck in store.State.Decks.Where(d=>reserveDesktop)) {
                 try { DesktopPlaceholder.Ensure(store,deck,Path.Combine(root,"artifacts","ClearFolder.exe")); }
                 catch(Exception error) { MessageBox.Show("无法创建桌面网格占位图标，收纳文件夹仍会运行但新图标可能覆盖其位置。\n"+error.Message,"桌面占位创建失败",MessageBoxButtons.OK,MessageBoxIcon.Warning); }
             }
