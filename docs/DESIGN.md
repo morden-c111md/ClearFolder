@@ -2,7 +2,7 @@
 
 ClearFolder is an independent Windows 11 desktop overlay written in C# using WPF for glass rendering and composition, and WinForms for tray and management UI. It is not a Windows Shell folder extension.
 
-Layout reads the actual desktop grid when available, snaps the entry to a nearby free cell, and preserves a separate hover corridor between entry and panel. Explorer does not reserve this overlay's cell.
+Layout reads the actual desktop grid when available, snaps the entry to a nearby free cell, and preserves a separate hover corridor between entry and panel. Each deck also creates a visible `.lnk` targeting ClearFolder; Explorer owns that shortcut's cell and the glass window covers it.
 
 Background capture runs asynchronously with one task in flight and reusable buffers. Hardware-supported PS 3.0 ShaderEffect refracts the background and adds localized short-lived light/dark waves. Foreground icons and text remain separate. Capture targets do not guarantee presented frame rate; hidden or fully covered entries pause sampling.
 
