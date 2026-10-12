@@ -1,13 +1,72 @@
-# Architecture
+# ClearFolder 设计规格
 
-ClearFolder is an independent Windows 11 desktop overlay written in C# using WPF for glass rendering and composition, and WinForms for tray and management UI. It is not a Windows Shell folder extension.
+2026-10-12当前采集设计取代本文旧的捕获排除方案：入口与拖动反馈正常参与截图/录屏；后台独立桌面宿主 PrintWindow 绘制到复用的完整源位图，再按物理像素裁剪到玻璃区域，不依赖源窗口遵守调用方 DC viewport/clip。捕获源拒绝自身及包含自身的父窗口。保留单帧在途、显示缓冲复用、遮挡暂停和错误重试，不通过周期隐藏或屏幕自采回退。细节及实测限制见 CAPTURE-COMPATIBILITY.md、VERIFICATION.md。
 
-Layout reads the actual desktop grid when available, snaps the entry to a nearby free cell, and preserves a separate hover corridor between entry and panel. Each deck creates a `.lnk` targeting ClearFolder; Explorer owns that shortcut's cell. A transparent ICO and ID-encoded blank Unicode filename prevent duplicate icon and label imagery. IShellLinkW/IPersistFile retain Unicode names and per-deck identity across restarts. The glass entry intercepts its complete cell using an alpha=1 input layer, while adjacent desktop cells remain accessible. Startup clears only this placeholder's selection. External desktop select-all or marquee selection can still select it.
+退出保护必须保留错误恢复通路：持久化失败留下的待处理移动记录不能被当作始终在运行的移动。托盘提供“重试完成移动记录”，仅实际文件移动与UI提交均已结束时可用，复用既有日志验证与提交逻辑，在进程内完成恢复并刷新当前Deck对象；失败明确通知并保留记录，不自动覆盖或删除。这样无需解除退出保护或强制结束进程即可恢复收纳操作。
 
-Glass edges use a one-pixel white gradient with alpha 120/42/78 for a clearer boundary without an outer glow.
+托盘图标本轮已确认采用蓝青色玻璃文件夹：小尺寸清晰轮廓，少量玻璃层次，替换默认SystemIcons.Application；由独立TrayIcon模块绘制并处理原生图标句柄释放，预览只写artifacts。
 
-Background capture runs asynchronously with one task in flight and reusable buffers. Hardware-supported PS 3.0 ShaderEffect refracts the background and adds localized short-lived light/dark waves. Foreground icons and text remain separate. Capture targets do not guarantee presented frame rate; hidden or fully covered entries pause sampling.
+本轮新增已批准：有真实Managed条目时禁用托盘退出并显示保护原因，在ExitThreadCore二次检查；移动中同样禁止，项目全部释放且无挂起移动后允许退出。条目变化时重新计算，保留打开收纳目录。不强行阻止系统终止。动态背景当前450ms一次被用户明确指出且确认优先流畅，改短间隔后台采样+可复用WriteableBitmap上传，避免逐帧创建大对象与多任务积压，保持捕获排除/内存采样/实际窗口遮挡保护。按后台处理耗时限制更新目标，实际动态背景跟随速度和CPU通过自有动画测试测量。实施：退出保护及行为/原生验证独立于背景捕获优化；最终统一构建、回归、审查和更新正常版本。
 
-The model persists layout and uses journaled real file moves. Explicit drag-in moves an item into data/files; drag-out resolves a filesystem destination before moving. Cancellation, unknown destinations and name conflicts preserve the managed item. Pending journals block new transfers and normal exit until resolved. Managed items also lock normal tray exit. This does not prevent shutdown or forced process termination.
+2026-10-11 本轮已确认修复：用户“行”批准入口至面板的宽鼠标通路，并已选择暗背景水波加入淡淡局部动态明暗。通路与可见三角分离，展开后允许横向/斜向移动到面板，点击穿透至下方桌面，受实际窗口层级限制；完全离开即收起。水波仅在波面局部短暂改变明暗，不增加整体雾底、外圈高光或前景图标扭曲。本轮不改程序退出行为。实施顺序：先几何/命中及行为回归，再着色器/暗色合成实测，最终审查、构建与替换正在使用的版本。测试只用artifacts合成数据。
 
-Startup registration is disabled by default and requires explicit UI confirmation. Diagnostic flags use isolated synthetic data except explicitly supplied preview/icon inputs. Runtime capture is memory-only; explicit diagnostics may export screenshots.
+日期：2026-10-10。依据：本聊天多轮视觉核对与用户“开始吧”。
+
+## 2026-10-11 反馈修订（用户已授权继续）
+用户反馈卡顿、水波不可见、入口消失、重启后不启动、部分快捷方式白图标，并新增桌面网格对齐要求。
+
+保留引用/收纳模型，替换每帧CPU位图提交的主显示路径：WPF透明窗口持有稳定前景和玻璃背景图层；系统动画时钟驱动从入口舒展、轻微回弹、吸回入口，支持反向中断。背景只定期采样，像素着色器产生多个独立出生/衰减的鼠标波纹，前景不折射。硬件不可用时显示明确兼容路径，不冒充GPU。
+
+普通应用前台时入口放在应用后方，不反复Hide；桌面/任务栏激活时恢复桌面可见层。捕获失败不停止入口，记录并节流重试。托盘提供定位/恢复入口。当前用户登录启动默认关闭，只在界面明确确认后配置；启动后恢复既有布局。
+
+入口以实际桌面图标格距和原点吸附，优先读取Shell IFolderView位置/格距；避免已占用桌面格子和其他收纳组。每个收纳组创建一个指向 ClearFolder 的可见 `.lnk`，由 Explorer 真实占用其格子，玻璃窗口覆盖该快捷方式并使用创建后的网格位置。不可读取时按系统图标格距降级并明确标记。拖动中与释放后保持网格落点，不重排其他真实桌面图标。
+
+图标优先解析.url的IconFile/IconIndex以及.lnk的IconLocation/TargetPath，不执行快捷方式目标；异步缓存完成主动更新前景，失败显示可辨识的后备图标。
+
+验证新增网格吸附/避让、波纹寿命/移动不重置、动画时间连续性、.url图标读取；实际桌面测量帧回调间隔/停顿，并检查入口在应用切换后可恢复。测试通过不替代用户对丝滑程度的验收。
+
+## 用户体验
+### 2026-10-11真实收纳修订
+用户再次明确：拖入应移动原项目，拖出应移动到桌面或资源管理器指定的真实目录，用户自己选择内容，不预填。拖放接受用户主动拖入的真实文件/快捷方式/普通目录，包括桌面和资源管理器来源。权限不足时明确失败，不擅自提权；磁盘根目录、虚拟系统图标、符号链接及联接点不伪造为可移动项目。“添加引用”菜单才保留原文件；已有引用不自动转换，只有用户再次明确拖入该源项目时才转为真实收纳。
+
+每次拖入先写恢复日志，再后台移动，成功后更新元数据；队列逐项处理，进度与部分失败可见。失败不会悄悄降级为引用。拖出超过阈值才启动自有鼠标捕获和图标反馈；松手后通过 Windows Shell 与 UI Automation 确认桌面空白、资源管理器文件列表空白处或真实文件夹图标所代表的目录，再执行有日志的移动并从面板移除。不会将项目交给未知 OLE 目标执行删除。取消、松手回面板、目标不明确或重名冲突均保留项目。回收站、此电脑、导航栏、标题栏和其他应用不是有效目标；多标签页路径不唯一时拒绝，建议独立窗口。
+
+旧引用拖回其源文件所在目录时只移除引用；用户主动拖到其他真实目录时移动真实源项目并移除引用。该行为仅由本次主动拖放触发。项目右键保留恢复到记录原位置的操作。
+
+测试只用合成临时根目录、可注入的用户/公共桌面目录和目标目录；正式桌面识别读取 Windows 用户/公共桌面路径，资源管理器识别读取真实文件系统目录。不会填充或清空用户现有布局。拖入/拖出无需每次弹确认框，主动拖放本身就是用户的明确选择。
+
+程序运行后提供一个图标大小的透明收纳入口。鼠标悬停 220ms，面板从入口旁缩放展开；鼠标可通过连接区域进入面板。离开入口、连接和面板的共同区域后立即开始收起动画。面板按 2/3/4 列布局，最多16个一页，分页查看更多项目。图标单击打开，鼠标滚轮分页，Esc 收起。
+
+收起底板与展开面板共用透明背景采样与对比度处理，无模糊灰白底；收起与展开边缘加入约1物理像素、低透明度的反光细线，不加发光外圈。鼠标运动触发短暂、衰减的背景折射，前景图标不变形。尖角约16度、根部曲线接入、适中圆角。以实际可运行效果验收，不以生图承诺动画。
+
+## 架构和环境
+本机没有 .NET SDK/C++ 工具链，但存在系统 .NET Framework 4.x C# 编译器。当前显示使用 WPF 透明窗口、系统合成动画和硬件像素着色器；WinForms 负责托盘和管理对话框。捕获排除自身的桌面小区域，后台定期采样并上传背景，不在每帧用 CPU 遍历像素。未能排除自身时禁用采样、使用明确标记的透明兼容底板，不允许无限截图反馈。首版 CPU 渲染器仅用于离线布局比较。
+
+各收纳入口一个透明窗口，面板在同一窗口扩展；透明区穿透鼠标，面板区域拦截点击。屏幕边缘自动向左展开并限制工作区；拖动入口按网格保存位置。普通应用获得前台时入口保持在其后方，桌面前台恢复可见层；托盘提供定位和显示/隐藏供兼容性调整。兼容性须单独记录。
+
+默认拖入真实项目移入 data/files/，源位置原图标随之消失；添加引用由明确菜单提供。释放到目标目录或恢复到原位置均拒绝覆盖同名文件并通知。文件和目录移动走存储模块的事务路径；部分移动失败时保留日志和源/目标，不清除证据，阻止继续移动。单独移除引用不会删除文件。
+
+资源管理器前台时，覆盖层以非置顶窗口留在其后方；将文件拖向未被资源管理器遮住的入口区域，收到真实 DragEnter 后临时置顶维持拖放。普通点击不提升窗口，悬停必须检查鼠标下实际窗口。拖放目标不设置 WS_EX_TRANSPARENT。图标与存在状态在后台加载并缓存，不在每帧访问文件系统。第一版使用系统 DPI；混合 DPI 跨屏仍需人工验证，几何布局会缩小以适配工作区。
+
+## 模块
+- Native.cs：Win32、窗口层级、前台窗口识别和兼容接口。
+- Model.cs：数据模型、原子存储、引用、后台真实收纳/释放与恢复日志。
+- DesktopGrid.cs：实际桌面格距、原点和占用格读取与吸附。
+- DropDestinations.cs：仅观察目标点的 UI Automation 与 Shell 目录识别，无法确认时拒绝移动。
+- FileIcons.cs：快捷方式图标解析、Shell 后备图标与 STA 支持。
+- Layout.cs：网格/边缘布局、平滑连接路径、弹簧与悬停状态。
+- GlassSurface.cs / WaterEffect.cs / RippleState.cs：WPF 合成动画、清透背景着色器、独立衰减的波纹、清晰前景、状态与拖动反馈。
+- GlassRenderer.cs：保留首版 CPU 离线预览。
+- FolderWindow.cs：窗口事件、拖放、鼠标命中、上下文菜单。
+- Program.cs：单实例、托盘、多文件夹管理、测试演示入口。
+
+## 验收与边界
+编译和行为测试覆盖网格分页、屏幕边缘、移出立即收起、路径引用、真实移动与释放冲突、损坏配置保护、恢复日志和目的地路径校验。合成场景检测硬件水波像素变化和动画回调间隔；具体结果以 docs/VERIFICATION.md 为准，不能把回调频率当作呈现帧率。拖放必须另外验证真实桌面/资源管理器命中与取消流程；受限运行环境不能完成时明确记为未验证。当前版本不承诺苹果原生材质、固定帧率或跨 Explorer 重启的完全桌面嵌入。
+
+2026-10-11用户体验修订：用户确认细而淡的边缘反光线；离开共同区域立即启动现有收起动画，不等待400ms。排查Wallpaper图标加载链路；重命名应从右键菜单可靠弹出到可交互前台，提交保存并刷新入口及面板名称，取消保持原名。
+
+菜单生命周期修订：所有菜单动作使用活动回调计数，清理须等待回调返回；模态对话框期间禁止重排入口窗口到菜单上方。图标优先选择最高256像素有效ICO帧并在前景缓存中保留原分辨率。
+
+2026-10-11水波开关与入口尺寸修订：菜单显示带勾选的当前水波状态，不再只显示相反的操作动词；开启立即持久化并更新指针波纹，保存失败恢复原值。渲染不可用时明确说明，不能显示虚假的开启状态。用户确认收起入口整体放大约20%，优先保持原桌面图标中心，屏幕边缘及狭窄格距限制在工作区/单格中，格子吸附和原有项不移动。
+
+用户本轮要求启用水波，更新时允许通过显式一次性参数 `--enable-ripples` 保存强度1.8；正常无参数启动继续使用已有设置，不强制覆盖用户之后的关闭选择。读写失败须显示启动错误，不能静默退出。原生水波菜单诊断只操作自身合成窗口；超时须取消尚未完成的点击，点击前重新验证原菜单进程与实际鼠标命中。

@@ -1,11 +1,132 @@
-# Validation
+# 原生版本验证记录
 
-2026-10-11 revision: build passed and 160 behavior checks passed. Added transparent ICO decoding, Unicode blank shortcut identity reload/repeated update/foreign identity rejection, and entry cell padding/neighbor input boundaries. Interactive WindowFromPoint checks confirmed the entry handles its left, right and lower padding while the outside desktop remains accessible. Existing managed entries and position were retained during the local update. Startup deselects only its placeholder; desktop select-all and external marquee selection remain a known limitation.
+## 2026-10-12 截图与录屏兼容（当前版本）
 
-Run scripts/Build.ps1 and scripts/Test.ps1 on Windows with the system .NET Framework x64 compiler. Behavior tests use isolated artifacts/test-* synthetic data and retain it for inspection. No personal desktop files are moved by these tests.
+- 正常入口及拖动图标不再设置捕获排除。背景改为 PrintWindow 独立桌面宿主绘制，复用完整源缓冲后裁剪；不会把自身屏幕采样回贴。早期尝试的 DC 偏移/裁剪在本机被 PrintWindow 忽略，已通过不对称标记回归查出并替换。
+- 构建与160项行为检查通过；`--dynamic-background-test` 通过：拒绝自身背景源、部分交集外黑色、源红色标记坐标正确、72次更新全部匹配近期颜色、三类缓冲复用、遮挡暂停及恢复、普通屏幕采集可见输出。背景上传约23.64次/秒，非呈现FPS。
+- `--desktop-background-test` 使用正常桌面宿主及合成入口通过：单组2.213秒41次上传，约18.53次/秒；背景探针6种颜色，完整宿主采集中位33.094ms、p95 39.996ms。普通截图中42/225采样点与独立背景不同，验证前景图标进入截图且不进入背景源。未保存用户屏幕图像。
+- `--animation-test` 通过：默认可捕获、明暗背景水波、反向收放、离开即收、Win+D后可达及层级。285次合成回调中位9.206ms、p95 23.044ms，非呈现FPS。
+- 当前实测仅代表本机壁纸宿主、单组和当前DPI；不同壁纸引擎及混合DPI需另验。每组保存完整宿主源位图，开销随组数与宿主尺寸增长；PrintWindow同步调用可能长期阻塞，但单帧在途及非等待释放使UI/退出不等待它。以下旧版捕获排除记录为历史。
 
-Interactive diagnostic flags: --capture-test, --interaction-test, --drop-test, --transfer-test, --usability-test, --tray-test, --dynamic-background-test, --ripple-menu-test, --animation-test, --smoke. They require an interactive Windows desktop; some move the pointer temporarily and generate artifacts. Run serially, not simultaneously.
+## 2026-10-11 退出保护、动态壁纸跟随和托盘图标（最新）
 
---render-preview uses synthetic defaults. To render a deliberately chosen image, set CLEARFOLDER_PREVIEW_IMAGE. --icon-test requires CLEARFOLDER_ICON_SHORTCUT pointing to a .url fixture whose ICO includes a valid 256px PNG frame. It is intentionally not a portable test without that fixture.
+- 用户批准有Managed收纳项目时禁用普通托盘退出，全部释放后允许退出。`--tray-test`使用实际托盘菜单验证禁用点击仍保持运行、最后项目移除后解锁并退出。ExitThreadCore同时校验未完成移动和Managed状态。蓝青玻璃文件夹图标由程序绘制，原生句柄克隆/释放，预览artifacts/tray-icon-preview.png。
+- 退出保护审查发现持久化失败需重启恢复的死锁，新增托盘进程内“重试完成移动记录”；实际任务进行时拒绝重试，沿用原State/Deck对象。RecoverJournal写盘失败回滚内存字段及条目列表，先确保持久化再清日志。153项行为检查通过，包括收纳/释放提交失败、重复重试仍失败、恢复后独立重新加载正确状态；原启动恢复检查保留。
+- 动态背景从450ms间隔改30ms目标，复用Bitmap/Graphics和WriteableBitmap，最多1个采样或待上传帧；完整小区域采样保持坐标，未做收起裁剪。正常完全遮挡时暂停，露出恢复，桌面前台本身不绕过实际遮挡判断，故障1s退避。
+- 最终 `--dynamic-background-test`退出0：使用自有动画窗口，经实际CopyFromScreen产品链路，3.034秒完成72次上传，23.731次/秒；间隔中位46ms、p95 62ms、最大64ms。捕获/显示缓冲均1→1、在途0；真实自有显示像素与上传背景一致；前台覆盖及桌面前台下仍遮挡均停止采样，露出后恢复。没有保存用户屏幕图像。
+- 过程CPU515.625ms、相当于单核16.995%，包括合成画面绘制和诊断轮询，不是隔离采样CPU。短时内存观察不证明长期无泄漏。上述上传更新率不是呈现FPS，后台捕获仍CPU屏幕拷贝，不宣称原生壁纸纹理直连或固定帧率。
+- 最终 `--tray-test`、`--interaction-test`、`--animation-test`全部退出0，宽通路、即时收回、暗色水波及Win+D可达性保持通过。最终审查发现的恢复死锁、重复恢复写盘回滚和遮挡门控问题均已修复复核，无剩余阻塞。
+- 合成资料保留在artifacts/test-*，未自动删除；正常用户数据不用于测试。
 
-Shader availability is detected at runtime. Animation callback intervals and background upload rates are not presented FPS. Native tests depend on hardware, desktop composition, DPI and foreground applications; report environment details with failures. Runtime data and local validation logs are excluded from the repository.
+## 2026-10-11 鼠标通路与暗色水波修订（历史记录）
+
+- 用户明确“退出”指鼠标从入口移到面板导致误收回，本轮未修改进程退出行为。已批准宽隐藏通路及局部淡明暗水波。
+- Layout将悬停几何与实际点击/可见三角分离，只有展开后通路生效。控制器对下层窗口使用实际Z序检查，其他窗口覆盖时不维持悬停。138项行为检查通过，涵盖左右/高DPI、四行近侧底格连续路径、三角外通路、收起禁用通路、通路外保持立即关闭语义及窗口排他边界。
+- `--interaction-test` 退出0：完整展开/展开中连接、离开即收回仍通过；左右方向分别在三角轮廓外停留250ms、16项四行布局下20步斜移至近侧底行图标均保持展开，原生窗口命中确认隐藏通路不截取点击，覆盖窗口出现后关闭。首轮旧段因光标离开指定点且出现实际左键事件而失败，日志保留直接证据；提示避免操作鼠标后完整验证通过。
+- `--animation-test` 退出0，保留既有动画/棋盘/Win+D验证。纯暗色背景波纹变化5441/16038像素，亮/暗像素2817/2624，最大通道变化9；近黑背景变化5198/16038，最大变化10。随后演化变化8366/8027像素，两种背景关闭后残留与漂移均0（通道容差1）。新增明暗限于独立波包，关闭后无整板白色底。
+- 本机仍为Render Tier2/PS3.0硬件路径。回调386个，中位8.357ms、p95 17.897ms、最大35.747ms，这不是呈现FPS，不作所有场景无卡顿承诺。
+- 编译、行为及原生报告位于artifacts；合成资料artifacts/test-*保留，未删除或搬动用户收纳文件。
+
+## 2026-10-11 水波开关与入口放大修订（历史记录）
+
+- 正常布局本轮检查水波强度保存为0；旧菜单只写相反的操作动词，容易误读。现在显示明确当前状态并勾选已开启项，启用即时保存且失败回滚；硬件或捕获兼容降级时不显示虚假的开启状态。
+- 用户确认入口放大约20%。本机原桌面图标72×72物理像素，入口改为86×86并保持中心；仍使用115×147桌面格距吸附，并新增可见 Shell `.lnk` 占位，使 Explorer 避开该格。124项行为检查通过，新增中心、单格与屏幕边缘检查。
+- 原生 `--ripple-menu-test` 实际右键点击启用、关闭、再启用，均验证内存和重新读取的设置一致；鼠标移动后实际波纹数量3。报告PASS，波纹数量不作为硬件视觉证据。
+- 原生 `--animation-test` 退出0：真实合成背景采样中，鼠标移动引起4420/16038像素变化，随后波纹演化引起7643像素变化；Render Tier2 / PS3.0硬件路径。连续三次展开、反向收起与Win+D后可达性通过。453个回调样本中位8.241ms、p95 14.563ms、最大74.124ms，这不是呈现FPS。
+- `--interaction-test` 首次回归仍有未展开样本，增加诊断日志后未放宽等待或通过条件，最终退出0，悬停、完整连接区、展开中的连接区、移出立即收起及收回完成均通过。早期失效原因尚未唯一确定，不宣称已消除所有偶发问题。菜单诊断早期亦有未命中样本，后续完整开关流程通过。
+- 正常测试不修改用户布局/文件。更新程序时使用显式 `--enable-ripples` 为用户开启水波；后续正常启动不强制覆盖选择。测试资料保留在artifacts/test-*。
+
+## 2026-10-11 细淡边缘、图标清晰度与重命名修订（历史记录）
+
+- 入口与展开面板均加入1物理像素渐变边缘反光（白色alpha65/18/38），没有发光外圈或雾白底。图标和文字独立于背景折射。
+- 用户选择移出立即收起：首次离开共同区域即改变悬停状态，现有约240ms缩回动画立即开始。展开中的透明区域按实际窗口层级检查连接路径，避免400ms宽限移除后刚进入连接区就收回；窗口被其他应用覆盖时仍不接管。
+- Wallpaper Engine 的原ICO完整，旧读取固定48像素；改为最高256像素有效原生帧，避免高DPI放大低分辨率图标。`--icon-test`验证实际WPF缓存256×256、透明度零差异、最大预乘颜色误差1/255，使用Fant高质量缩小；仅导出自身合成背景视觉，不截图桌面。
+- 重命名基线实际复现.NET错误“无法访问已释放的对象。对象名ContextMenuStrip”。统一包装菜单操作，活动回调结束后才销毁菜单；模态输入/确认期间不重新抬高玻璃窗口；重命名对话框归属入口并聚焦文本。`--usability-test`实际右键→点击→修改→确定→重新加载名称验证通过，再次输入→取消→重新加载名称不变通过。
+- `scripts/Test.ps1` 122项行为检查通过。原生交互、动画、资源管理器拖出测试均退出0；交互覆盖完整展开连接区、展开过程中的连接区、移出即启动收回及收回完成。动画回调458样本，中位8.149ms、p95 14.610ms、最大67.665ms，不是呈现FPS，不宣称无卡顿。
+- 诊断早期有未稳定的悬停样本，加入只在诊断启用的鼠标命中日志后最终回归通过；日志不证明早期失败的唯一原因。后续仍需实际桌面长期试用。
+- 正常用户布局未填入测试内容，未自动搬动任何真实项目，未修改快捷方式或图标源文件、登录启动项。合成测试资料保留在artifacts/test-*，不自动删除。
+## 2026-10-11 真实拖入与拖出修订（历史记录）
+
+- `scripts/Build.ps1` 构建成功；`scripts/Test.ps1` 115项通过，覆盖真实文件/目录收纳与释放、任意明确来源与目标目录、旧引用处理、冲突拒绝、UI上下文提交，以及各阶段写盘失败与中断恢复。
+- 原生 `--drop-test` 退出0：合成WinForms OLE来源拖入WPF入口，源文件已移走，收纳文件内容完整。只有移动与布局提交完成后才向拖放来源报告Move；等待时继续处理UI消息。测试源和存储都位于独立artifacts测试目录，不移动用户文件。
+- `--interaction-test` 退出0：悬停、连接区和400ms收起通过。`--animation-test` 退出0：合成背景水波触发及演化、动画和Win+D后可达性通过。436个合成回调间隔样本中位8.164ms、p95 15.220ms、最大72.978ms；这不是呈现FPS，也不证明完全无卡顿。
+- 真实拖出采用跟随图标、鼠标捕获及只读目标识别。目标为确定的桌面或Explorer真实目录才执行带日志移动；虚拟位置、歧义标签页、同名冲突不移动。`--transfer-test` 原生完整鼠标拖出退出0：面板内松手取消，随后拖到新建Explorer测试窗口的已确认文件列表空白区域，源存储消失、目标内容一致、面板条目移除。只读真实桌面目标探测通过；未向真实桌面写文件。该流程首轮悬停未展开，增加命中日志后重跑通过，未延长等待或修改通过条件，随后再次完整测试也退出0；暂未确定首轮失效原因，仍保留该稳定性限制。
+- 本轮代码审查发现提前报告Move和传输途中退出两个问题，均已修复并复核；当前无Critical/High阻塞项。
+- 未预填示例，未自动转换或移动已有引用，未注册登录启动项；正常用户数据保持原样。测试目录保留，不自动清理。
+## 2026-10-11 WPF / 网格修订版（历史记录）
+
+最终构建 `scripts/Build.ps1` 成功；`scripts/Test.ps1` **48项全部通过**。随后同一最终构建的 `--animation-test`、`--interaction-test`、`--drop-test`、`--capture-test`、`--smoke` 均退出0。记录文件位于 `artifacts/`，以下为最新实机结果；后面的首版记录作为历史保留。
+
+- 实际硬件路径：WPF系统合成动画 + PS3.0 HardwareOnly像素着色器，Render Tier2。
+- 实际桌面：Explorer IFolderView2读取格距115×147、原点21,2；桌面视图DPI144，逻辑图标48转换为物理72×72。只读UIA交叉检查原桌面项目水平中心57，与21+72/2一致。没有移动真实桌面图标。
+- 动画：真实鼠标触发展开、收起中重新点击连续反向、连续三次展开均通过。首次材质和前景采用产品路径预热，展开起始速度为0，轻微回弹。回调样本383个，中位8.273ms、p95为17.740ms、最大68.654ms；三次连续展开p95约17.2～18.1ms，仍出现34.451ms单次间隔。首次采样最大间隔74.090ms，因此不宣称所有场景无卡顿。
+- 水波：使用自有合成棋盘背景、临时关闭自有测试窗口捕获排除、停止背景采样后检测真实屏幕像素变化，验证鼠标触发与后续波纹演化。只输出自有合成面板内部截图，不保存用户桌面。
+- 可见性：普通测试应用覆盖入口时窗口保持运行；测试应用关闭后入口保留；Win+D后 `WindowFromPoint` 实际命中入口。曾复现Win+D层级漂移，已加入实际窗口可见/最小化与桌面层级检查并复测通过。
+- 图标：合成 `.url` / `.lnk` 指定图标测试通过；只读验证用户两个Steam `.url` 的图标与其指定 `.ico` 逐像素一致。
+- 原生拖放：合成WinForms OLE来源拖入WPF面板成功，源文件完整。未自动化覆盖真实Explorer全部拖放组合。
+- 运行检查：4014ms，进程CPU时间0.156秒，GDI对象23→25。该短时结果不证明长期无资源泄漏，不作帧率承诺，也不与不同负载的历史运行直接作性能比值比较。
+- 最终代码审查通过，没有未解决的Critical/High问题；新增预热与桌面层级恢复也已复核。
+
+48项行为检查覆盖新增网格吸附/避让、满屏保护、100/150/200%图标尺寸、真实网格布局合同、快捷方式指定图标与中文路径、波纹独立出生/限频/过期、登录命令路径引用，以及原有存储/恢复保护。旧CPU玻璃测试仅检查离线材质逻辑，新GPU水波以独立原生测试为准。
+
+登录启动开关已实现，但**本轮没有实际写入启动项，也没有重启电脑验收**；仅用户在程序界面确认后修改当前用户的本程序Run值。当前默认关闭。桌面占位快捷方式会在缺失时重新创建；混合DPI多屏、Explorer重启、全屏/桌面增强软件兼容性仍需试用。
+
+测试数据 `artifacts/test-*` 保留。正常数据在 `data/`，不自动删除。正常运行仍只在内存采样桌面。
+
+## 首版历史记录
+
+验证日期：2026-10-10 至 2026-10-11。本记录对应 `artifacts/ClearFolder.exe` 首版；原生窗口检查在本机交互式 Windows 桌面运行。
+
+## 已完成
+
+| 检查 | 结果与证据 |
+|---|---|
+| 系统 .NET Framework 编译 | `scripts/Build.ps1` 成功，退出码0；未安装全局依赖 |
+| 行为测试 | `scripts/Test.ps1`，28项全部通过；`artifacts/behavior-test.txt` |
+| 捕获排除 | `--capture-test` 通过；正常捕获红色标记，排除后捕获其下蓝色标记；`artifacts/capture-test.txt` |
+| 实际鼠标交互 | `--interaction-test` 通过；悬停展开、连接处保持展开、移出200ms仍展开、延迟后收起；`artifacts/interaction-test.txt` |
+| 原生 OLE 拖放 | `--drop-test` 通过；拖入合成文件后新增引用，源文件保留；`artifacts/drop-test.txt` |
+| 原生窗口运行 | `--smoke` 成功运行4014ms，进程CPU时间0.734秒；`artifacts/smoke-test.txt` |
+| 预览生成 | `--render-preview` 成功；`artifacts/grid-preview.png` 展示2/3/4列，`artifacts/desktop-preview.png` 展示用户提供的桌面截图上的程序渲染 |
+| 代码审查 | 最终审查未发现阻塞问题；修复了普通鼠标按下提升窗口、拖放返回Move、后台图标释放竞争和收起时过大折射区域等问题 |
+
+行为测试覆盖布局边界、高DPI小工作区、负坐标显示器、分页、悬停状态、引用去重、原文件保留、配置写入/加载、损坏配置保护、恢复重名保护、移动日志恢复及材质一致性。移动/恢复测试使用合成数据。
+
+## 验证范围与限制
+
+- OLE来源是本程序的合成 WinForms 拖放窗口，尚未自动化验证真实资源管理器的全部拖放组合。
+- 高DPI几何测试通过；混合DPI多显示器实际操作、其他桌面增强软件、Explorer重启和全屏兼容性仍需试用。
+- 运行检查证明窗口能够持续运行，不证明长期无内存/GDI泄漏，也不构成帧率或整机CPU占用承诺。运行报告的手动交互提示由独立交互/拖放报告补充。
+- 跨卷目录移动使用系统 FileSystem.MoveDirectory API，但未以真实桌面目录进行跨卷收纳验证；部分移动失败时保留日志和两端文件，不自动清理。
+- 首次受限后台环境捕获失败留下的 `artifacts/diagnostic-error.txt` 是历史诊断；随后交互式桌面捕获测试已通过。
+- 未移动或删除用户真实桌面文件。测试目录 `artifacts/test-*` 按工作区规则保留，未自动删除。
+
+## 复现
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Build.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Test.ps1
+artifacts/ClearFolder.exe --capture-test
+artifacts/ClearFolder.exe --interaction-test
+artifacts/ClearFolder.exe --drop-test
+artifacts/ClearFolder.exe --smoke
+artifacts/ClearFolder.exe --render-preview
+```
+
+原生测试会短暂显示自己的测试窗口并移动鼠标，结束后恢复鼠标位置。捕获排除会使普通截图看不到玻璃窗口，预览图由程序明确导出；正常运行只在内存采样背景。
+
+
+
+
+
+
+
+本轮正常实例更新已验证：最终构建成功，进程正常响应，水波强度1.8；更新前后完整布局、名称、条目和设置规范化JSON一致。最终审查发现的四行斜移缺口及1px排他边界均已补齐。
+# 2026-10-11 入口占位与边缘修订验证
+
+- 边缘仍为 1 像素，渐变白色 alpha 调整为 120/42/78。
+- 原生占位使用全透明 ICO 与按组 ID 编码的空白 Unicode 名称；使用 IShellLinkW/IPersistFile 保存、加载及身份校验，避免 WScript.Shell 对名称转换失败。
+- 入口自身桌面格子由 alpha=1 输入层接管，并保持邻格鼠标透传。启动时仅取消自身占位项的原生选择。
+- 构建通过，160 项行为检查通过，包括空白名称重新加载/重复更新/错误身份拒绝以及相邻入口输入范围。
+- 已替换正常运行实例；6 个收纳项目、入口位置保留，快捷方式身份读回正常。实机 WindowFromPoint 检查：入口左右边缘和底部内侧命中本程序，外侧命中 Explorer。
+- 当前限制：从入口外框选或桌面全选仍可选中原生占位；本次修复的是直接点击透明边缘穿透导致的误选，未修改 Explorer 全局选择行为。
