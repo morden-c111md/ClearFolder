@@ -14,6 +14,7 @@ namespace ClearFolder {
         public Point Origin { get; private set; }
         public int IconSize { get; private set; }
         public IList<Point> Occupied { get; private set; }
+        internal Point? PlaceholderPosition {get;private set;}
         public DesktopGrid(Size cell,Point origin,int iconSize,IEnumerable<Point> occupied,string source) {
             if(cell.Width<1||cell.Height<1||iconSize<1)throw new ArgumentOutOfRangeException("cell");
             Cell=cell;Origin=origin;IconSize=iconSize;Occupied=new List<Point>(occupied??new Point[0]).AsReadOnly();Source=source;
@@ -41,7 +42,10 @@ namespace ClearFolder {
             return ((long)x<<32)|(uint)y;
         }
         public static DesktopGrid Read() {
-            try{return ReadShell();}
+            return Read(null);
+        }
+        internal static DesktopGrid Read(string placeholder) {
+            try{return ReadShell(placeholder,null);}
             catch(Exception ex) {
                 if(ex is OutOfMemoryException||ex is AccessViolationException)throw;
                 var area=Screen.PrimaryScreen.WorkingArea;int icon=GetSystemMetrics(11);
@@ -49,7 +53,13 @@ namespace ClearFolder {
                 return new DesktopGrid(new Size(w,h),new Point(area.Left+(w-icon)/2,area.Top+4),icon,new Point[0],"System metrics fallback: "+ex.GetType().Name);
             }
         }
-        static DesktopGrid ReadShell() {
+        internal static Point PositionPlaceholder(string path,Point desired) {
+            var grid=ReadShell(path,desired);
+            if(!grid.PlaceholderPosition.HasValue)throw new InvalidOperationException("Explorer 尚未显示本组占位快捷方式。");
+            return grid.PlaceholderPosition.Value;
+        }
+        internal static void ClearPlaceholderSelection(string path){ReadShell(path,null,true);}
+        static DesktopGrid ReadShell(string placeholder,Point? desired,bool clearSelection=false) {
             object windows=null,desktop=null;IntPtr browser=IntPtr.Zero,view=IntPtr.Zero,folder=IntPtr.Zero,folder2=IntPtr.Zero;
             try {
                 windows=Activator.CreateInstance(Type.GetTypeFromCLSID(new Guid("9BA05972-F6A8-11CF-A442-00A0C90A8F39")));
@@ -71,15 +81,32 @@ namespace ClearFolder {
                 if(dpi==0)using(var g=Graphics.FromHwnd(hwnd))dpi=(uint)Math.Round(g.DpiX);
                 if(logicalIcon>0)icon=ScaleIconSize(logicalIcon,dpi);
                 if(!ClientToScreen(hwnd,ref offset))throw new InvalidOperationException("Desktop client coordinates unavailable");
-                int count;Check(Call<GetCount>(folder,7)(folder,2,out count));var points=new List<Point>();
+                int count;Check(Call<GetCount>(folder,7)(folder,2,out count));var points=new List<Point>();Point? own=null;
+                IntPtr shellFolder=IntPtr.Zero;Guid shellId=new Guid("000214E6-0000-0000-C000-000000000046");
+                if(!string.IsNullOrEmpty(placeholder))Check(Call<GetFolder>(folder,5)(folder,ref shellId,out shellFolder));
+                try {
                 // Folder view positions are icon origins in icon view, in the view's client coordinates.
                 for(int n=0;n<Math.Min(count,20000);n++) {
                     IntPtr pidl=IntPtr.Zero;
-                    try {Check(Call<GetItem>(folder,6)(folder,n,out pidl));P p=new P();Check(Call<GetPosition>(folder,11)(folder,pidl,out p));points.Add(new Point(p.X+offset.X,p.Y+offset.Y));}
+                    try {
+                        Check(Call<GetItem>(folder,6)(folder,n,out pidl));P p=new P();Check(Call<GetPosition>(folder,11)(folder,pidl,out p));
+                        bool mine=shellFolder!=IntPtr.Zero&&string.Equals(ItemPath(shellFolder,pidl),placeholder,StringComparison.OrdinalIgnoreCase);
+                        if(mine&&clearSelection)Check(Call<SelectItem>(folder,15)(folder,n,0));
+                        if(mine&&desired.HasValue) {
+                            var position=new P{X=desired.Value.X-offset.X,Y=desired.Value.Y-offset.Y};
+                            IntPtr list=Marshal.AllocHGlobal(IntPtr.Size);
+                            try{Marshal.WriteIntPtr(list,pidl);Check(Call<PositionItems>(folder,16)(folder,1,list,ref position,0x80));}
+                            finally{Marshal.FreeHGlobal(list);}
+                            Check(Call<GetPosition>(folder,11)(folder,pidl,out p));
+                        }
+                        Point screenPoint=new Point(p.X+offset.X,p.Y+offset.Y);
+                        if(mine)own=screenPoint;else points.Add(screenPoint);
+                    }
                     finally {if(pidl!=IntPtr.Zero)Marshal.FreeCoTaskMem(pidl);}
                 }
+                }finally{if(shellFolder!=IntPtr.Zero)Marshal.Release(shellFolder);}
                 Point origin=points.Count>0?points[0]:new Point(offset.X+(spacing.X-icon)/2,offset.Y+4);
-                return new DesktopGrid(new Size(spacing.X,spacing.Y),origin,Math.Max(16,Math.Min(1024,icon)),points,"Explorer IFolderView"+(folder2!=IntPtr.Zero?"2":"")+"; logicalIcon="+logicalIcon+"; viewDpi="+dpi);
+                var result=new DesktopGrid(new Size(spacing.X,spacing.Y),origin,Math.Max(16,Math.Min(1024,icon)),points,"Explorer IFolderView"+(folder2!=IntPtr.Zero?"2":"")+"; logicalIcon="+logicalIcon+"; viewDpi="+dpi);result.PlaceholderPosition=own;return result;
             } finally {
                 if(folder2!=IntPtr.Zero)Marshal.Release(folder2);if(folder!=IntPtr.Zero)Marshal.Release(folder);if(view!=IntPtr.Zero)Marshal.Release(view);if(browser!=IntPtr.Zero)Marshal.Release(browser);
                 if(desktop!=null&&Marshal.IsComObject(desktop))Marshal.FinalReleaseComObject(desktop);
@@ -87,6 +114,16 @@ namespace ClearFolder {
             }
         }
         static void Check(int hr){Marshal.ThrowExceptionForHR(hr);}
+        static string ItemPath(IntPtr shell,IntPtr pidl) {
+            IntPtr strret=Marshal.AllocHGlobal(544);
+            try {Check(Call<GetName>(shell,11)(shell,pidl,0x8000,strret));var text=new System.Text.StringBuilder(32768);Check(StrRetToBuf(strret,pidl,text,(uint)text.Capacity));return text.ToString();}
+            finally{Marshal.FreeHGlobal(strret);}
+        }
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)] delegate int GetFolder(IntPtr self,ref Guid iid,out IntPtr result);
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)] delegate int SelectItem(IntPtr self,int index,uint flags);
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)] delegate int GetName(IntPtr self,IntPtr pidl,uint flags,IntPtr strret);
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)] delegate int PositionItems(IntPtr self,uint count,IntPtr pidls,ref P positions,uint flags);
+        [DllImport("shlwapi.dll",CharSet=CharSet.Unicode,EntryPoint="StrRetToBufW")] static extern int StrRetToBuf(IntPtr strret,IntPtr pidl,System.Text.StringBuilder text,uint count);
         internal static int ScaleIconSize(int logical,uint dpi){if(logical<1||dpi<1)throw new ArgumentOutOfRangeException("logical");return checked((int)Math.Round(logical*(dpi/96.0),MidpointRounding.AwayFromZero));}
         static T Call<T>(IntPtr obj,int slot) where T:class {return Marshal.GetDelegateForFunctionPointer(Marshal.ReadIntPtr(Marshal.ReadIntPtr(obj),slot*IntPtr.Size),typeof(T)) as T;}
         [StructLayout(LayoutKind.Sequential)] struct P {public int X,Y;}

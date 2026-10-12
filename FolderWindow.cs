@@ -22,7 +22,7 @@ namespace ClearFolder {
         int page;
         long lastCapture=-1000,locateUntil;
         Point downMouse,downAnchor;
-        bool pressed,dragging,menuOpen,dropHover,captureOkay,manualHidden,shownExpanded;
+        bool pressed,dragging,menuOpen,dropHover,manualHidden,shownExpanded;
         volatile bool disposed;
         bool warnedCapture,warnedTick;
         IntPtr lastForeground;
@@ -34,6 +34,8 @@ namespace ClearFolder {
         readonly object captureBufferGate=new object();
         Bitmap captureBitmap;
         Graphics captureGraphics;
+        readonly WindowBackgroundCapture backgroundCapture=new WindowBackgroundCapture();
+        internal IntPtr BackgroundSourceOverride;
         int captureBufferAllocations;
         long captureStarted,captureCompleted,captureApplied,lastApplied=-1,captureRetryAfter;
         readonly List<double> captureCosts=new List<double>(),uploadCosts=new List<double>(),backgroundIntervals=new List<double>();
@@ -46,18 +48,16 @@ namespace ClearFolder {
         internal Action<string> HoverTrace;
         internal sealed class BackgroundCaptureStatistics {
             internal long Started,Completed,Applied;
-            internal int InFlight,CaptureBufferAllocations,DisplayBufferAllocations;
+            internal int InFlight,CaptureBufferAllocations,DisplayBufferAllocations,SourceBufferAllocations;
             internal Rectangle Bounds;
             internal double[] CaptureMilliseconds,UploadMilliseconds,UpdateIntervals;
         }
         public FolderWindow(Store data,Deck deck) {
-            store=data;Deck=deck;grid=DesktopGrid.Read();
+            store=data;Deck=deck;grid=DesktopGrid.Read(Deck.PlaceholderPath);
             surface=new GlassSurface();
             Recalculate();
             var hwnd=Handle;
             Native.SetWindowLongPtr(hwnd,-20,new IntPtr(Native.GetWindowLongPtr(hwnd,-20).ToInt64()|0x80|0x08000000));
-            captureOkay=Native.SetWindowDisplayAffinity(hwnd,0x11);
-            if(!captureOkay)surface.SetCompatibilityMaterial();
             HwndSource.FromHwnd(hwnd).AddHook(WindowHook);
             surface.PreviewMouseDown+=delegate(object sender,System.Windows.Input.MouseButtonEventArgs e) {
                 if(e.ChangedButton==System.Windows.Input.MouseButton.Left)OnDown(null,new MouseEventArgs(MouseButtons.Left,1,MouseLocal.X,MouseLocal.Y,0));
@@ -78,14 +78,15 @@ namespace ClearFolder {
         internal IntPtr Handle {get{return surface.NativeHandle;}}
         internal bool Visible {get{return surface.IsVisible;}}
         internal bool IsTransferBusy {get{return transferUiBusy;}}
-        internal string RendererDescription {get{return surface.RendererDescription;}}
+        internal string RendererDescription {get{return surface.RendererDescription+"；独立桌面窗口背景采集，支持系统截图/录屏";}}
         Point MouseLocal {get{return PointToClient(Cursor.Position);}}
         public Point PointToClient(Point point){return new Point(point.X-layout.Bounds.X,point.Y-layout.Bounds.Y);}
         public Point PointToScreen(Point point){return new Point(point.X+layout.Bounds.X,point.Y+layout.Bounds.Y);}
         internal void Recalculate() {
             Point desired=new Point(Deck.X,Deck.Y);Screen screen=Screen.FromPoint(desired);
             var reserved=store.State.Decks.Where(d=>d!=Deck).Select(d=>new Point(d.X,d.Y));
-            Point anchor=grid.Snap(desired,screen.WorkingArea,reserved);Deck.X=anchor.X;Deck.Y=anchor.Y;
+            grid=DesktopGrid.Read(Deck.PlaceholderPath);
+            Point anchor=grid.PlaceholderPosition.HasValue?grid.PlaceholderPosition.Value:grid.Snap(desired,screen.WorkingArea,reserved);Deck.X=anchor.X;Deck.Y=anchor.Y;
             float scale;using(var graphics=Graphics.FromHwnd(IntPtr.Zero))scale=graphics.DpiX/96f;
             scale=Math.Max(.75f,Math.Min(2.5f,scale));
             layout=ClearFolder.Layout.Calculate(anchor,Deck.Entries.Count,page,screen.WorkingArea,scale,grid.Cell,grid.IconSize);
@@ -126,11 +127,10 @@ namespace ClearFolder {
                 if(priorOpen!=hover.Open&&HoverTrace!=null)HoverTrace("Hover="+hover.Open+" pointer="+Cursor.Position+" local="+mouse+" contains="+layout.Contains(mouse,true)+" hit="+under+"/"+Native.ClassName(under)+" receives="+receives+" bridge="+openingBridge+" expansion="+surface.Expansion+" escape="+Native.GetAsyncKeyState(27));
                 if(shownExpanded!=hover.Open){shownExpanded=hover.Open;surface.SetExpanded(shownExpanded);}
                 surface.UpdatePointer(mouse,now/1000.0,inside,store.State.RippleStrength);
-                if(!captureOkay&&!warnedCapture){warnedCapture=true;MessageBox.Show("系统未能排除玻璃窗口自身的捕获，已停用背景采样以避免递归。\n入口和动画仍保留；可从托盘退出后重启程序重试。", "ClearFolder 材质兼容提示");}
                 bool visibleDesktop=top||receives||IsEntryExposed();
                 // A 30ms sampling target is limited by timer scheduling and actual copy/
                 // upload cost. There is only one frame in capture or awaiting UI upload.
-                if(captureOkay&&ghost==null&&!diagnosticBackground&&!PauseBackgroundCapture&&visibleDesktop&&now>=captureRetryAfter&&now-lastCapture>=30&&Interlocked.CompareExchange(ref captureInFlight,1,0)==0)CaptureBackground();
+                if(ghost==null&&!diagnosticBackground&&!PauseBackgroundCapture&&visibleDesktop&&now>=captureRetryAfter&&now-lastCapture>=30&&Interlocked.CompareExchange(ref captureInFlight,1,0)==0)CaptureBackground();
             }catch(Exception error) {
                 if(!warnedTick){warnedTick=true;MessageBox.Show("入口仍保留，正在重试显示。\n"+error.Message,"ClearFolder 显示恢复",MessageBoxButtons.OK,MessageBoxIcon.Warning);}
             }
@@ -155,7 +155,6 @@ namespace ClearFolder {
         }
         void CaptureBackground() {
             lastCapture=clock.ElapsedMilliseconds;
-            if(!captureOkay){Interlocked.Exchange(ref captureInFlight,0);return;}
             Rectangle bounds=layout.Bounds;int current=generation;captureStarted++;lastCaptureBounds=bounds;
             ThreadPool.QueueUserWorkItem(delegate {
                 Bitmap bitmap=null;Exception failure=null;double captureCost=0;
@@ -169,10 +168,11 @@ namespace ClearFolder {
                             captureGraphics=Graphics.FromImage(captureBitmap);Interlocked.Increment(ref captureBufferAllocations);
                         }
                         bitmap=captureBitmap;
-                        captureGraphics.CopyFromScreen(bounds.Left,bounds.Top,0,0,bounds.Size,CopyPixelOperation.SourceCopy);
+                        backgroundCapture.Capture(captureGraphics,bounds,Handle,BackgroundSourceOverride);
                     }
                     captureCost=elapsed.Elapsed.TotalMilliseconds;
                 }catch(Exception error){failure=error;}
+                if(disposed){lock(captureBufferGate)DisposeCaptureBuffer();Interlocked.Exchange(ref captureInFlight,0);return;}
                 try {
                     surface.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background,new Action(delegate {
                         try {
@@ -197,13 +197,12 @@ namespace ClearFolder {
             });
         }
         static void AddMetric(List<double> values,double value){if(values.Count>=600)values.RemoveAt(0);values.Add(value);}
-        void DisposeCaptureBuffer(){if(captureGraphics!=null){captureGraphics.Dispose();captureGraphics=null;}if(captureBitmap!=null){captureBitmap.Dispose();captureBitmap=null;}}
-        internal bool CaptureProtectionAvailable {get{return captureOkay;}}
+        void DisposeCaptureBuffer(){if(captureGraphics!=null){captureGraphics.Dispose();captureGraphics=null;}if(captureBitmap!=null){captureBitmap.Dispose();captureBitmap=null;}backgroundCapture.Dispose();}
         internal long BackgroundUpdates {get{return captureApplied;}}
         internal Color ReadBackgroundPixel(Point point){return surface.ReadBackgroundPixel(point);}
         internal BackgroundCaptureStatistics BackgroundStatistics() {
             return new BackgroundCaptureStatistics {Started=captureStarted,Completed=captureCompleted,Applied=captureApplied,InFlight=Interlocked.CompareExchange(ref captureInFlight,0,0),
-                CaptureBufferAllocations=Interlocked.CompareExchange(ref captureBufferAllocations,0,0),DisplayBufferAllocations=surface.BackgroundBufferAllocations,Bounds=lastCaptureBounds,
+                CaptureBufferAllocations=Interlocked.CompareExchange(ref captureBufferAllocations,0,0),DisplayBufferAllocations=surface.BackgroundBufferAllocations,SourceBufferAllocations=backgroundCapture.BufferAllocations,Bounds=lastCaptureBounds,
                 CaptureMilliseconds=captureCosts.ToArray(),UploadMilliseconds=uploadCosts.ToArray(),UpdateIntervals=backgroundIntervals.ToArray()};
         }
         int HitCell(Point point) {
@@ -216,7 +215,7 @@ namespace ClearFolder {
             ignoreMouseUp=false;
             int index=HitCell(e.Location);
             if(index>=0){pressedEntry=Deck.Entries[layout.Start+index];pressed=true;downMouse=Cursor.Position;surface.CaptureMouse();return;}
-            if(layout.Icon.Contains(e.Location)||layout.Label.Contains(e.Location)) {
+            if(layout.EntrySlot.Contains(e.Location)) {
                 grid=DesktopGrid.Read();pressed=true;downMouse=Cursor.Position;downAnchor=new Point(Deck.X,Deck.Y);surface.CaptureMouse();
             }
         }
@@ -230,11 +229,11 @@ namespace ClearFolder {
             }
             if(dragging) {
                 Point desired=new Point(downAnchor.X+current.X-downMouse.X,downAnchor.Y+current.Y-downMouse.Y),snapped;
-                try{snapped=grid.Snap(desired,Screen.FromPoint(desired).WorkingArea,store.State.Decks.Where(d=>d!=Deck).Select(d=>new Point(d.X,d.Y)));}
+                try{grid=DesktopGrid.Read(Deck.PlaceholderPath);snapped=grid.Snap(desired,Screen.FromPoint(desired).WorkingArea,store.State.Decks.Where(d=>d!=Deck).Select(d=>new Point(d.X,d.Y)));}
                 catch(InvalidOperationException){return;}
                 if(snapped==new Point(Deck.X,Deck.Y))return;
                 Point previous=new Point(Deck.X,Deck.Y);Deck.X=snapped.X;Deck.Y=snapped.Y;
-                try{hover.Close();shownExpanded=false;surface.SetExpanded(false,true);Recalculate();}
+                try{if(!string.IsNullOrEmpty(Deck.PlaceholderPath))DesktopGrid.PositionPlaceholder(Deck.PlaceholderPath,snapped);hover.Close();shownExpanded=false;surface.SetExpanded(false,true);Recalculate();}
                 catch(Exception error){Deck.X=previous.X;Deck.Y=previous.Y;RunSafe(delegate{throw new InvalidOperationException("不能放置到该格子，保留原位置。",error);});}
             }
         }
@@ -416,7 +415,7 @@ namespace ClearFolder {
             if(msg==0x21){handled=true;return new IntPtr(3);}
             return IntPtr.Zero;
         }
-        public void Dispose(){if(disposed)return;EndDrag();disposed=true;timer.Stop();timer.Dispose();lock(captureBufferGate)DisposeCaptureBuffer();surface.Close();}
+        public void Dispose(){if(disposed)return;EndDrag();disposed=true;timer.Stop();timer.Dispose();if(Monitor.TryEnter(captureBufferGate)){try{DisposeCaptureBuffer();}finally{Monitor.Exit(captureBufferGate);}}surface.Close();}
     }
     internal static class InputDialog {
         sealed class Owner : System.Windows.Forms.IWin32Window {readonly IntPtr handle;internal Owner(IntPtr value){handle=value;}public IntPtr Handle{get{return handle;}}}

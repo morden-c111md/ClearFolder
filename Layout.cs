@@ -4,7 +4,7 @@ using System.Drawing.Drawing2D;
 
 namespace ClearFolder {
     public sealed class Layout {
-        public Rectangle Bounds,Icon,Label,Panel;
+        public Rectangle Bounds,Icon,Label,Panel,EntrySlot;
         public Rectangle[] Cells;
         public bool Left;
         public int Columns,Page,Pages,Start;
@@ -45,9 +45,15 @@ namespace ClearFolder {
             var lr=new Rectangle(ax,iconY+icon+(int)(3*scale),slot,(int)(26*scale));
             if(nativeGrid)lr.Intersect(work);
             var pr=new Rectangle(px,py,width,height);
-            var bounds=Rectangle.Union(Rectangle.Union(ir,lr),pr);bounds.Inflate(margin,margin);
+            var entry=Rectangle.Union(ir,lr);
+            if(nativeGrid) {
+                entry=Rectangle.Union(entry,new Rectangle(anchor.X-(desktopCell.Width-desktopIcon)/2,anchor.Y-(int)(4*scale),desktopCell.Width,desktopCell.Height));
+                entry.Intersect(work);
+            }
+            var bounds=Rectangle.Union(entry,pr);bounds.Inflate(margin,margin);
             v.Bounds=bounds;
             v.Icon=Offset(ir,-bounds.X,-bounds.Y);v.Label=Offset(lr,-bounds.X,-bounds.Y);v.Panel=Offset(pr,-bounds.X,-bounds.Y);
+            v.EntrySlot=Offset(entry,-bounds.X,-bounds.Y);
             v.Cells=new Rectangle[shown];
             for(int i=0;i<shown;i++)v.Cells[i]=new Rectangle(v.Panel.X+pad+(i%v.Columns)*cell,v.Panel.Y+header+(i/v.Columns)*cell,cell,cell);
             return v;
@@ -85,7 +91,7 @@ namespace ClearFolder {
             p.AddArc(r.Right-d,r.Bottom-d,d,d,0,90);p.AddArc(r.X,r.Bottom-d,d,d,90,90);p.CloseFigure();return p;
         }
         public bool Contains(Point local,bool expanded) {
-            if(Icon.Contains(local)||Label.Contains(local))return true;
+            if(EntrySlot.Contains(local))return true;
             if(!expanded)return false;
             using(var path=PanelPath())return path.IsVisible(local);
         }

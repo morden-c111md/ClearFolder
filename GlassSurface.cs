@@ -19,6 +19,7 @@ namespace ClearFolder {
     internal sealed class GlassSurface : Window,IDisposable {
         readonly Canvas canvas=new Canvas(),panel=new Canvas(),mini=new Canvas(),foreground=new Canvas();
         readonly Canvas iconGlass=new Canvas(),panelGlass=new Canvas();
+        readonly System.Windows.Shapes.Rectangle entryInput=new System.Windows.Shapes.Rectangle {Fill=new SolidColorBrush(Color.FromArgb(1,0,0,0))};
         readonly Image iconBackground=new Image(),panelBackground=new Image();
         readonly System.Windows.Shapes.Path iconEdge=new System.Windows.Shapes.Path {IsHitTestVisible=false};
         readonly System.Windows.Shapes.Path panelEdge=new System.Windows.Shapes.Path {IsHitTestVisible=false};
@@ -64,7 +65,7 @@ namespace ClearFolder {
             // to refract separately. Do not cache the glass/shader subtree.
             foreground.CacheMode=new BitmapCache(1);mini.CacheMode=new BitmapCache(1);
             iconGlass.Background=panelGlass.Background=new SolidColorBrush(Color.FromArgb(18,15,25,35));
-            panel.Visibility=Visibility.Collapsed;canvas.Children.Add(iconGlass);canvas.Children.Add(iconEdge);canvas.Children.Add(panel);canvas.Children.Add(mini);
+            panel.Visibility=Visibility.Collapsed;canvas.Children.Add(entryInput);canvas.Children.Add(iconGlass);canvas.Children.Add(iconEdge);canvas.Children.Add(panel);canvas.Children.Add(mini);
             NativeHandle=new WindowInteropHelper(this).EnsureHandle();
             Closed+=delegate {DisposeResources();};
         }
@@ -77,6 +78,8 @@ namespace ClearFolder {
         }
         public void Configure(Layout value,Deck group,Settings options) {
             layout=value;deck=group;
+            entryInput.Width=value.EntrySlot.Width;entryInput.Height=value.EntrySlot.Height;
+            Canvas.SetLeft(entryInput,value.EntrySlot.X);Canvas.SetTop(entryInput,value.EntrySlot.Y);
             canvas.Width=value.Bounds.Width;canvas.Height=value.Bounds.Height;
             panel.Width=canvas.Width;panel.Height=canvas.Height;mini.Width=canvas.Width;mini.Height=canvas.Height;
             foreground.Width=canvas.Width;foreground.Height=canvas.Height;
@@ -93,9 +96,9 @@ namespace ClearFolder {
         static void ConfigureEdge(System.Windows.Shapes.Path edge,Geometry geometry) {
             edge.Data=geometry;edge.StrokeThickness=1;edge.StrokeLineJoin=PenLineJoin.Round;
             var brush=new LinearGradientBrush {StartPoint=new Point(0,0),EndPoint=new Point(1,1)};
-            brush.GradientStops.Add(new GradientStop(Color.FromArgb(65,255,255,255),0));
-            brush.GradientStops.Add(new GradientStop(Color.FromArgb(18,255,255,255),.5));
-            brush.GradientStops.Add(new GradientStop(Color.FromArgb(38,255,255,255),1));
+            brush.GradientStops.Add(new GradientStop(Color.FromArgb(120,255,255,255),0));
+            brush.GradientStops.Add(new GradientStop(Color.FromArgb(42,255,255,255),.5));
+            brush.GradientStops.Add(new GradientStop(Color.FromArgb(78,255,255,255),1));
             brush.Freeze();edge.Stroke=brush;
         }
         public void SetBackground(Drawing.Bitmap source,double value) {
