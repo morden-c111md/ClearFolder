@@ -22,7 +22,6 @@ namespace ClearFolder {
             window.Content=panel;
             var handle=new WindowInteropHelper(window).EnsureHandle();
             Native.SetWindowLongPtr(handle,-20,new IntPtr(Native.GetWindowLongPtr(handle,-20).ToInt64()|0x20|0x80|0x08000000));
-            Native.SetWindowDisplayAffinity(handle,0x11);
             HwndSource.FromHwnd(handle).AddHook(delegate(IntPtr h,int m,IntPtr w,IntPtr l,ref bool handled){if(m==0x84){handled=true;return new IntPtr(-1);}return IntPtr.Zero;});
         }
         internal void Move(Point point) {

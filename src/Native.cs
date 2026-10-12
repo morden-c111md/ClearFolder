@@ -19,6 +19,7 @@ namespace ClearFolder {
         [DllImport("user32.dll",EntryPoint="GetWindowLongPtrW")] internal static extern IntPtr GetWindowLongPtr(IntPtr hwnd,int index);
         [DllImport("user32.dll",EntryPoint="SetWindowLongPtrW")] internal static extern IntPtr SetWindowLongPtr(IntPtr hwnd,int index,IntPtr value);
         [DllImport("user32.dll",SetLastError=true)] internal static extern bool SetWindowDisplayAffinity(IntPtr hwnd,uint affinity);
+        [DllImport("user32.dll",SetLastError=true)] internal static extern bool GetWindowDisplayAffinity(IntPtr hwnd,out uint affinity);
         [DllImport("user32.dll")] internal static extern IntPtr GetForegroundWindow();
         [DllImport("user32.dll")] internal static extern IntPtr GetWindow(IntPtr hwnd,uint command);
         [DllImport("user32.dll")] internal static extern bool SetForegroundWindow(IntPtr hwnd);

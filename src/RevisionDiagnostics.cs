@@ -17,7 +17,7 @@ namespace ClearFolder {
             string artifacts=Path.Combine(root,"artifacts");Directory.CreateDirectory(artifacts);
             string testRoot=Path.Combine(artifacts,"test-revision-"+DateTime.Now.ToString("yyyyMMdd-HHmmss-fff",CultureInfo.InvariantCulture));
             var log=new List<string>();bool passed=true;Point oldCursor=Cursor.Position;IntPtr oldForeground=Native.GetForegroundWindow();
-            FolderWindow window=null;Form cover=null;bool affinityChanged=false,desktopToggled=false;
+            FolderWindow window=null;Form cover=null;bool desktopToggled=false;
             try {
                 var store=new Store(testRoot);store.Load();var deck=store.State.Decks[0];
                 Rectangle work=Screen.PrimaryScreen.WorkingArea;deck.X=work.Left+work.Width/3;deck.Y=work.Top+work.Height/3;
@@ -54,8 +54,8 @@ namespace ClearFolder {
                     Check(window.Expansion>.98&&values.Count(v=>v>.03&&v<.97)>=3&&MaxStep(values)<.65,"warm opening "+cycle+" retains continuous intermediate values",log,ref passed);
                 }
 
-                affinityChanged=Native.SetWindowDisplayAffinity(window.Handle,0);
-                Check(affinityChanged,"own synthetic window can be sampled",log,ref passed);
+                uint affinity;
+                Check(Native.GetWindowDisplayAffinity(window.Handle,out affinity)&&affinity==0,"own synthetic window permits normal system capture",log,ref passed);
                 Rectangle interior=new Rectangle(layout.Panel.X+(int)(26*layout.Scale),layout.Panel.Y+(int)(48*layout.Scale),layout.Panel.Width-(int)(52*layout.Scale),layout.Panel.Height-(int)(70*layout.Scale));
                 if(interior.Width<20||interior.Height<20)throw new InvalidOperationException("Synthetic panel interior is too small for a valid shader sample.");
                 Rectangle screenInterior=interior;screenInterior.Offset(layout.Bounds.Location);
@@ -78,7 +78,6 @@ namespace ClearFolder {
                 }
                 TestDarkWater(window,store,layout,interior,screenInterior,Color.FromArgb(22,27,34),"dark solid",log,ref passed);
                 TestDarkWater(window,store,layout,interior,screenInterior,Color.FromArgb(2,3,5),"near-black solid",log,ref passed);
-                Native.SetWindowDisplayAffinity(window.Handle,0x11);affinityChanged=false;
 
                 Move(outside);Pump(60);Check(!window.IsExpanded&&window.Expansion<.999,"leave begins closing without delay",log,ref passed);Pump(350);
                 Check(!window.IsExpanded&&window.Expansion<.02,"close animation ends with complete collapse",log,ref passed);
@@ -107,7 +106,7 @@ namespace ClearFolder {
                 Check(intervals.Length>=10,"composition callback interval sample collected",log,ref passed);
             }catch(Exception error){passed=false;log.Add("FAIL: "+error);}
             finally {
-                if(window!=null){if(affinityChanged)Native.SetWindowDisplayAffinity(window.Handle,0x11);window.Dispose();}
+                if(window!=null){window.Dispose();}
                 if(cover!=null){cover.Close();cover.Dispose();}
                 if(desktopToggled)ToggleDesktop();
                 Native.mouse_event(4,0,0,0,UIntPtr.Zero);Native.SetCursorPos(oldCursor.X,oldCursor.Y);

@@ -23,6 +23,7 @@ namespace ClearFolder {
                 if(args.Contains("--icon-test")){return IconDiagnostics.Run(root)?0:2;}
                 if(args.Contains("--tray-test")){return TrayDiagnostics.Run(root)?0:2;}
                 if(args.Contains("--dynamic-background-test")){return DynamicBackgroundDiagnostics.Run(root)?0:2;}
+                if(args.Contains("--desktop-background-test")){return DynamicBackgroundDiagnostics.RunDesktop(root)?0:2;}
                 if(args.Contains("--ripple-menu-test")){return RippleMenuDiagnostics.Run(root)?0:2;}
                 if(args.Contains("--animation-test")){return RevisionDiagnostics.Run(root)?0:2;}
                 bool created;
