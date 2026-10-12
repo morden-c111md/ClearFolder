@@ -57,11 +57,12 @@ namespace ClearFolder {
         readonly ToolStripMenuItem exitItem;
         readonly ToolStripMenuItem retryTransferItem;
         bool force;
+        string placeholderWarning;
         public TrayController(Store state,string project,bool reserveDesktop=true) {
             store=state;root=project;
             foreach(var deck in store.State.Decks.Where(d=>reserveDesktop)) {
-                try { DesktopPlaceholder.Ensure(store,deck,Path.Combine(root,"artifacts","ClearFolder.exe")); }
-                catch(Exception error) { MessageBox.Show("无法创建桌面网格占位图标，收纳文件夹仍会运行但新图标可能覆盖其位置。\n"+error.Message,"桌面占位创建失败",MessageBoxButtons.OK,MessageBoxIcon.Warning); }
+                try { if(!DesktopPlaceholder.Ensure(store,deck,Path.Combine(root,"artifacts","ClearFolder.exe")))placeholderWarning="Explorer 暂时无法确认桌面网格占位，已保留收纳文件夹和原位置。"; }
+                catch(Exception error) { placeholderWarning="桌面网格占位未更新，已保留收纳文件夹和原位置。\n"+error.Message; }
             }
             foreach(var deck in store.State.Decks)windows.Add(new FolderWindow(store,deck));
             try{store.Save();}catch(Exception error){MessageBox.Show("网格位置暂未保存，下次启动仍会重新吸附。\n"+error.Message,"布局保存失败");}
@@ -98,7 +99,9 @@ namespace ClearFolder {
             trayArtwork=TrayIcon.Create();
             tray=new NotifyIcon {Icon=trayArtwork,Text="ClearFolder · 悬停收纳",ContextMenuStrip=menu,Visible=true};
             tray.DoubleClick+=delegate{foreach(var w in windows)w.Locate();};
-            tray.ShowBalloonTip(6000,"ClearFolder 已启动","按 Win+D 查看桌面；悬停文件夹展开，右键添加项目。拖入会移动原文件；拖出可移回桌面或文件夹。",ToolTipIcon.Info);
+            string startupMessage="按 Win+D 查看桌面；悬停文件夹展开，右键添加项目。拖入会移动原文件；拖出可移回桌面或文件夹。";
+            if(string.IsNullOrWhiteSpace(placeholderWarning))tray.ShowBalloonTip(6000,"ClearFolder 已启动",startupMessage,ToolTipIcon.Info);
+            else tray.ShowBalloonTip(7000,"ClearFolder 已恢复，但桌面入口需要重试",placeholderWarning+"\n\n"+startupMessage,ToolTipIcon.Warning);
         }
         void NewDeck() {
             if(store.HasPendingTransfer){MessageBox.Show("文件移动尚未完成，请稍后再新建。");return;}
@@ -107,7 +110,7 @@ namespace ClearFolder {
             var work=Screen.FromPoint(Cursor.Position).WorkingArea;
             var deck=new Deck {Name=name,X=work.Left+220+(windows.Count%6)*90,Y=work.Top+100+(windows.Count/6)*100};
             store.State.Decks.Add(deck);
-            try{DesktopPlaceholder.Ensure(store,deck,Path.Combine(root,"artifacts","ClearFolder.exe"));store.Save();windows.Add(new FolderWindow(store,deck){ForceVisible=force});}
+            try{bool confirmed=DesktopPlaceholder.Ensure(store,deck,Path.Combine(root,"artifacts","ClearFolder.exe"));store.Save();windows.Add(new FolderWindow(store,deck){ForceVisible=force});if(!confirmed)tray.ShowBalloonTip(6000,"ClearFolder 已创建文件夹","Explorer 暂时无法确认桌面网格占位，已保留当前文件夹位置。",ToolTipIcon.Warning);}
             catch(Exception error){store.State.Decks.Remove(deck);MessageBox.Show(error.Message,"创建失败");}
         }
         protected override void ExitThreadCore() {
