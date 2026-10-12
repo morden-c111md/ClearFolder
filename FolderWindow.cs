@@ -86,12 +86,22 @@ namespace ClearFolder {
             Point desired=new Point(Deck.X,Deck.Y);Screen screen=Screen.FromPoint(desired);
             var reserved=store.State.Decks.Where(d=>d!=Deck).Select(d=>new Point(d.X,d.Y));
             grid=DesktopGrid.Read(Deck.PlaceholderPath);
-            Point anchor=grid.PlaceholderPosition.HasValue?grid.PlaceholderPosition.Value:grid.Snap(desired,screen.WorkingArea,reserved);Deck.X=anchor.X;Deck.Y=anchor.Y;
+            Point anchor;
+            if(grid.PlaceholderPosition.HasValue)anchor=grid.PlaceholderPosition.Value;
+            else if(IsSavedAnchorUsable(desired,screen.WorkingArea,grid,reserved))anchor=desired;
+            else anchor=grid.Snap(desired,screen.WorkingArea,reserved);
+            Deck.X=anchor.X;Deck.Y=anchor.Y;
             float scale;using(var graphics=Graphics.FromHwnd(IntPtr.Zero))scale=graphics.DpiX/96f;
             scale=Math.Max(.75f,Math.Min(2.5f,scale));
             layout=ClearFolder.Layout.Calculate(anchor,Deck.Entries.Count,page,screen.WorkingArea,scale,grid.Cell,grid.IconSize);
             page=layout.Page;surface.SetBounds(layout.Bounds);surface.Configure(layout,Deck,store.State);
             generation++;lastCapture=-1000;
+        }
+        static bool IsSavedAnchorUsable(Point point,Rectangle work,DesktopGrid current,IEnumerable<Point> reserved) {
+            int bottom=work.Bottom-Math.Max(current.IconSize+26,current.Cell.Height-4);
+            if(point.X<work.Left||point.Y<work.Top||point.X>work.Right-current.IconSize||point.Y>bottom)return false;
+            if(reserved!=null)foreach(Point other in reserved)if(Math.Abs(other.X-point.X)<=2&&Math.Abs(other.Y-point.Y)<=2)return false;
+            return true;
         }
         void Tick(object sender,EventArgs e) {
             if(disposed||manualHidden)return;
