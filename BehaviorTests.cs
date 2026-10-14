@@ -10,7 +10,17 @@ namespace ClearFolder.Tests {
         static void Throws(Action action,string name){bool threw=false;try{action();}catch{threw=true;}Check(threw,name);}
         [STAThread] static int Main(string[] args) {
             try {
+                if(args[0]=="--lifetime-probe"||args[0]=="--lifetime-baseline")return LifetimeBehaviorTests.Probe(args);
+                if(args[0]=="--lifetime-test")return LifetimeBehaviorTests.RunNative(Path.GetFullPath(args[1]));
                 string root=Path.GetFullPath(args[0]);Directory.CreateDirectory(root);
+                Check(LifetimeBootstrap.Quote("")=="\"\"","empty startup argument is preserved");
+                Check(LifetimeBootstrap.Quote("a b")=="\"a b\"","startup spaces are quoted");
+                Check(LifetimeBootstrap.Quote("a\"b")=="\"a\\\"b\"","embedded startup quote is escaped");
+                Check(LifetimeBootstrap.Quote("x\\")=="\"x\\\\\"","trailing startup slash is doubled");
+                Check(!LifetimeBootstrap.NeedsHandoff(new LifetimeBootstrap.JobState{InJob=false,Flags=0}),"normal desktop launch needs no handoff");
+                Check(LifetimeBootstrap.NeedsHandoff(new LifetimeBootstrap.JobState{InJob=true,Flags=0}),"job with unknown ancestor restrictions requests independent launch");
+                Check(LifetimeBootstrap.UserArguments(new[]{LifetimeBootstrap.Marker+Guid.NewGuid().ToString("N")}).Length==0,"internal handoff marker does not suppress ordinary startup failure notification");
+                Check(LifetimeBootstrap.NeedsHandoff(new LifetimeBootstrap.JobState{InJob=true,Flags=0x2800}),"kill-on-close job requires independent handoff");
                 Check(Layout.ColumnCount(0)==2&&Layout.ColumnCount(4)==2,"2-column grid for <=4 items");
                 checks+=ShellBehaviorTests.Run(Path.Combine(root,"shell"));
                 checks+=TransferBehaviorTests.Run(Path.Combine(root,"transfers"));
@@ -38,6 +48,10 @@ namespace ClearFolder.Tests {
                 var desktopLayout=Layout.Calculate(new Point(136,149),4,0,work,1.5f,new Size(115,147),72);
                 Check(desktopLayout.Icon.Size==new Size(86,86)&&desktopLayout.Bounds.X+desktopLayout.Icon.X+43==172&&desktopLayout.Bounds.Y+desktopLayout.Icon.Y+43==185,"collapsed folder grows twenty percent around native icon center");
                 var adjacent=Layout.Calculate(new Point(251,149),4,0,work,1.5f,new Size(115,147),72);
+                var slotPadding=new Point(desktopLayout.EntrySlot.Left+1,desktopLayout.EntrySlot.Top+1);
+                Check(desktopLayout.Contains(slotPadding,false),"collapsed entry intercepts native placeholder cell padding");
+                Check(!desktopLayout.Contains(new Point(desktopLayout.EntrySlot.Right+1,desktopLayout.EntrySlot.Top+1),false),"collapsed entry does not intercept neighboring desktop cell");
+                Check(desktopLayout.EntrySlot.Right<=adjacent.EntrySlot.Left+adjacent.Bounds.X-desktopLayout.Bounds.X,"adjacent native entry input cells do not overlap");
                 Check(desktopLayout.Icon.Width<115&&desktopLayout.Bounds.X+desktopLayout.Icon.Right<adjacent.Bounds.X+adjacent.Icon.Left,"enlarged folder remains within one desktop grid cell");
                 var corner=Layout.Calculate(new Point(0,2),4,0,work,1.5f,new Size(115,147),72);
                 Check(corner.Bounds.X+corner.Icon.X>=work.Left&&corner.Bounds.Y+corner.Icon.Y>=work.Top,"enlarged edge anchor keeps visible glass inside work area");
