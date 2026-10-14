@@ -10,7 +10,17 @@ namespace ClearFolder.Tests {
         static void Throws(Action action,string name){bool threw=false;try{action();}catch{threw=true;}Check(threw,name);}
         [STAThread] static int Main(string[] args) {
             try {
+                if(args[0]=="--lifetime-probe"||args[0]=="--lifetime-baseline")return LifetimeBehaviorTests.Probe(args);
+                if(args[0]=="--lifetime-test")return LifetimeBehaviorTests.RunNative(Path.GetFullPath(args[1]));
                 string root=Path.GetFullPath(args[0]);Directory.CreateDirectory(root);
+                Check(LifetimeBootstrap.Quote("")=="\"\"","empty startup argument is preserved");
+                Check(LifetimeBootstrap.Quote("a b")=="\"a b\"","startup spaces are quoted");
+                Check(LifetimeBootstrap.Quote("a\"b")=="\"a\\\"b\"","embedded startup quote is escaped");
+                Check(LifetimeBootstrap.Quote("x\\")=="\"x\\\\\"","trailing startup slash is doubled");
+                Check(!LifetimeBootstrap.NeedsHandoff(new LifetimeBootstrap.JobState{InJob=false,Flags=0}),"normal desktop launch needs no handoff");
+                Check(LifetimeBootstrap.NeedsHandoff(new LifetimeBootstrap.JobState{InJob=true,Flags=0}),"job with unknown ancestor restrictions requests independent launch");
+                Check(LifetimeBootstrap.UserArguments(new[]{LifetimeBootstrap.Marker+Guid.NewGuid().ToString("N")}).Length==0,"internal handoff marker does not suppress ordinary startup failure notification");
+                Check(LifetimeBootstrap.NeedsHandoff(new LifetimeBootstrap.JobState{InJob=true,Flags=0x2800}),"kill-on-close job requires independent handoff");
                 Check(Layout.ColumnCount(0)==2&&Layout.ColumnCount(4)==2,"2-column grid for <=4 items");
                 checks+=ShellBehaviorTests.Run(Path.Combine(root,"shell"));
                 checks+=TransferBehaviorTests.Run(Path.Combine(root,"transfers"));
