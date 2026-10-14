@@ -26,15 +26,21 @@ namespace ClearFolder {
                 if(args.Contains("--desktop-background-test")){return DynamicBackgroundDiagnostics.RunDesktop(root)?0:2;}
                 if(args.Contains("--ripple-menu-test")){return RippleMenuDiagnostics.Run(root)?0:2;}
                 if(args.Contains("--animation-test")){return RevisionDiagnostics.Run(root)?0:2;}
+                if(LifetimeBootstrap.Prepare(args,root))return 0;
+                AppDomain.CurrentDomain.UnhandledException+=delegate(object sender,UnhandledExceptionEventArgs e){LifecycleLog.Write(root,"unhandled "+(e.ExceptionObject==null?"unknown":e.ExceptionObject.GetType().Name));};
                 bool created;
                 using(var mutex=new Mutex(true,"Local\\Morden.ClearFolder.20261010",out created)) {
-                    if(!created){MessageBox.Show("ClearFolder 已在运行，请从任务栏通知区域的图标打开菜单。","ClearFolder");return 0;}
+                    if(!created){LifecycleLog.Write(root,"existing-instance");MessageBox.Show("ClearFolder 已在运行，请从任务栏通知区域的图标打开菜单。","ClearFolder");return 0;}
                     var store=new Store(Path.Combine(root,"data"));store.Load();
                     if(args.Contains("--enable-ripples")){store.State.RippleStrength=1.8;store.Save();}
-                    Application.Run(new TrayController(store,root));
+                    var controller=new TrayController(store,root);
+                    LifecycleLog.Write(root,"ui-ready");
+                    Application.Run(controller);
+                    LifecycleLog.Write(root,"message-loop-ended");
                 }
                 return 0;
             }catch(Exception error) {
+                LifecycleLog.Write(root,"main-failed "+error.GetType().Name);
                 string message=error.GetType().Name+": "+error.Message;
                 if(args.Length>0) {
                     try {
@@ -42,7 +48,8 @@ namespace ClearFolder {
                         File.WriteAllText(Path.Combine(root,"artifacts","diagnostic-error.txt"),error.ToString());
                     }catch(Exception logError){message+="\n诊断日志也未能写入："+logError.Message;}
                 }
-                if(args.Length==0||args.Contains("--login")||args.Contains("--enable-ripples"))MessageBox.Show("启动失败，原布局和文件已保留。\n\n"+message,"ClearFolder",MessageBoxButtons.OK,MessageBoxIcon.Error);
+                var userArgs=LifetimeBootstrap.UserArguments(args);
+                if(userArgs.Length==0||userArgs.Contains("--login")||userArgs.Contains("--enable-ripples"))MessageBox.Show("启动失败，原布局和文件已保留。\n\n"+message,"ClearFolder",MessageBoxButtons.OK,MessageBoxIcon.Error);
                 return 1;
             }
         }
@@ -116,6 +123,7 @@ namespace ClearFolder {
         protected override void ExitThreadCore() {
             string reason=ExitProtection.Reason(store.State,windows.Any(w=>w.IsTransferBusy),store.HasPendingTransfer);
             if(reason!=null){MessageBox.Show("无法退出："+reason+"。\n请先将已收纳项目拖出或恢复；可从托盘打开收纳目录。","ClearFolder 退出保护");return;}
+            LifecycleLog.Write(root,"normal-exit-approved");
             tray.Visible=false;tray.Dispose();trayArtwork.Dispose();menu.Dispose();foreach(var window in windows)window.Dispose();base.ExitThreadCore();
         }
         void UpdateExitProtection() {
