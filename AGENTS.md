@@ -1,19 +1,48 @@
-# ClearFolder contributor workspace
+# ClearFolder 工作区规范
 
-- src/: C# modules, PascalCase.cs, one responsibility per file.
-- scripts/: repeatable PowerShell build and test commands.
-- tests/: synthetic behavior tests; never move a contributor's real files.
-- docs/: public architecture, validation and upstream references.
-- artifacts/: generated executables, diagnostics and synthetic test data; ignored by Git.
-- data/: local layout and managed user files; ignored by Git. Never publish or automatically delete.
-- Update public design notes before changing behavior. Review changes and run Build.ps1 and Test.ps1.
-- Do not commit secrets, personal paths, screenshots, local diagnostics or runtime data.
-- File moves require explicit user interaction, retain recovery journals, and never overwrite conflicts.
-- Startup registration is opt-in. Do not change other applications' registry settings.
-- Native diagnostics require an interactive Windows desktop and may temporarily move the pointer.
-- The glass surface remains capturable by normal screenshots and recordings: it samples an independent desktop host window, keeps the source bitmap in memory, and does not use capture exclusion. Wallpaper compatibility depends on the host application's composition path; keep the last frame when a sample is unavailable.
-- Each deck keeps a `.lnk` on the current user's Desktop as an Explorer-owned grid reservation, with a transparent icon and an ID-encoded blank Unicode filename. Use IShellLinkW/IPersistFile for Unicode-safe access and verify the per-deck identity before updating it. The entry intercepts its own cell; never clear other desktop items' selection.
-- Temporary test data is retained for inspection; cleanup requires the owner's consent.
-- Placeholder confirmation must not block startup with a modal warning. Keep the folder visible at a usable saved position and report degraded reservation through the tray.
-- Verify desktop behavior in the user's interactive Windows desktop. A process running on an isolated tool desktop does not prove that the user can see or interact with it; known-folder paths can also differ between execution contexts.
-- When the known desktop directory differs from a stored placeholder directory, preserve the old verified shortcut while creating and verifying a replacement. Report migration failure and retain the actual surviving path if rollback fails.
+## 目标与已确认设计
+- 托盘图标使用用户确认的简洁蓝青色玻璃文件夹，以托盘小尺寸可辨认为优先；图形资源由程序生成并正确释放，不使用系统默认应用图标。
+- 本轮确认：有Managed收纳项目或待完成移动时禁止托盘普通退出；全部释放后允许退出。不能阻止Windows关机/任务管理器强制结束，不修改系统设置。
+- 动态壁纸优先流畅：缩短后台采样间隔、复用背景显示缓冲、最多一个采样任务在途、隐藏或被遮挡时降低/停止采样；实际更新率与开销须用动态合成背景测量，不能把采样目标频率当实际呈现FPS。
+- Windows 11 原生桌面收纳程序；收起占一个图标位置，悬停在旁边展开。
+- 清透玻璃：保留背景细节与对比度，无雾白底；细淡边缘反光，不使用发光外圈；水波折射背景并按用户确认添加局部短暂明暗起伏，改善暗色背景可见性。
+- 入口与面板之间增加独立的宽鼠标通路，不改变细长三角外观；仅已展开时保持悬停，真正离开共同区域立即收起。通路不拦截下方桌面点击，被其他应用覆盖时不接管。
+- 小图标和文字清晰稳定；收起与展开使用同一种材质。用户最新确认收起底板及内部图标放大约20%，保持原网格中心并限制在单个格子内。
+- 方形网格自动使用 2、3、4 列；16 个一页。鼠标离开入口、连接区和面板后立即开始收起动画。
+- 适中圆角、细长锐角连接，根部平滑。面板覆盖桌面图标，不改变桌面布局。
+- 2026-10-11修订：入口拖动须按实际桌面网格吸附并避让已有图标；不再自由落点。每个收纳文件夹维护一个可见的桌面 Shell 快捷方式作为真实网格占位，玻璃窗口覆盖其图标并使用相同位置；快捷方式只启动 ClearFolder，不代表预填收纳项目。
+- 修订渲染采用系统WPF合成动画及像素着色器；仅在硬件检测与实测支持时说明GPU路径，不承诺固定帧率。
+- 提供用户主动勾选的当前用户登录启动开关，默认不启用；只有用户在界面确认后才修改本程序启动项。
+- 2026-10-11再次修订：用户主动拖入桌面或资源管理器中的真实文件系统项目即授权收纳移动，成功后源位置原图标消失；拖出到桌面空白、资源管理器当前目录或真实文件夹图标时移动真实项目并移除面板条目。不得预填示例或自动收纳已有引用。
+- 拖出由程序先可靠识别目标，再执行有日志的移动；不能确认目标、取消或重名冲突时保留收纳项目，不把回收站、此电脑等虚拟图标当作普通目录。
+
+## 目录与命名
+- `artifacts/opensource/ClearFolder/`：明确白名单复制的开源源码包，独立AGENTS规定其结构；不复制data、运行产物、用户截图或本机验证日志。`artifacts/opensource/`下仅保存开源导出、审计报告和打包文件，不自动清理。
+- `src/`：C# 源码，PascalCase.cs，每个文件负责一个模块。
+- `scripts/`：可重复使用的构建/验证 PowerShell 脚本，Verb-Noun.ps1。
+- `tests/`：行为测试源码，只使用合成临时数据。
+- `docs/`：设计、实施计划、上游调研与验证记录。
+- `artifacts/`：可重新生成的程序、测试报告、预览截图；不混入源码。
+- `data/`：本地布局和用户明确收纳的文件；启动时创建，不能自动删除。
+- 根目录只放规范、README 与启动脚本；不放一次性临时脚本。
+
+## 安全与实现约定
+- 2026-10-14独立生命周期：正常入口在单实例锁、布局和窗口创建前检查 Windows Job；处于 KillOnJobClose 时仅通过系统允许的显式 breakaway 创建独立实例，挂起验证后才恢复执行。失败明确报告，不继续伪装为常驻成功，不改系统策略或增加守护进程。诊断保持受控宿主内运行；生命周期日志只记录进程/Job/阶段和异常类型，不记录用户项目或完整命令行。
+- 嵌套 Job 回退：若显式 breakaway 仍继承外层 Job，销毁尚未执行的子进程，通过实际桌面 Explorer COM 代启动；新实例仍须核验不属于任何 Job。普通入口处于 Job 时均验证独立交接，不能只凭最近一层 Job 标志推断外层安全。
+- 2026-10-12录屏修订：用户已确认收纳窗口正常参与截图和录屏；背景改为后台独立桌面宿主窗口采集，不再给入口或拖动图标设置捕获排除。禁止用包含自身的整屏采样替代失败的独立采集，禁止周期隐藏窗口；继续保持单帧在途、复用缓冲及遮挡暂停。PrintWindow 的动态壁纸支持仅以本机实测说明。
+- 2026-10-12桌面路径修订：若保存的占位快捷方式位于一个已验证身份的旧桌面目录，启动时保留该快捷方式及其网格位置，不因当前 Windows 已知文件夹路径变化而放弃收纳入口；只有身份无法验证时才报告错误并保留原布局。
+- 2026-10-12桌面占位迁移修订：旧桌面目录与当前已知桌面目录不一致时，先在当前目录创建并验证同一身份的占位快捷方式，再切换布局路径；旧占位在新路径未确认前保留，避免迁移失败造成入口断链。
+- 占位图标自身网格由入口完整接管鼠标，使用极低 alpha 命中底层防止透明像素穿透；仅清除此占位项的选择状态，不清除其他桌面图标的选择。
+- 空白 Unicode 占位文件名使用原生 IShellLinkW/IPersistFile 读写，禁止通过 WScript.Shell 读写这类名称；须验证重新加载及身份一致性。
+- 2026-10-11占位显示修订：仅本程序已验证身份的桌面占位快捷方式使用透明ICO及空白字符文件名，避免原生图标/标签进入清透材质；迁移保留同一Shell项位置，不修改其他桌面项目。玻璃边缘保持1像素细线，提高明暗梯度至alpha120/42/78。
+- 修改实践前先更新本文件或设计文档。删除文件、全局安装、系统设置、密钥、CI、推送须用户批准。
+- 默认拖放执行真实收纳；“添加引用”菜单才保留原文件。只移动用户实际拖入的项目；既有引用不自动转换。恢复不覆盖同名文件。
+- 不自动扫描后移动/删除桌面文件，不自动开机启动，不关闭用户窗口。
+- 不保存桌面采样画面到磁盘；用于玻璃渲染的截图仅在内存。测试截图只由验证模式明确输出。
+- 使用系统 .NET Framework 编译器，无全局安装。首版 CPU 逐帧折射只保留作离线预览；当前 WPF 硬件路径必须以检测和实测为依据，不宣称固定帧率。
+- 不把本项目称作上游 fork，除非实际引入源码并遵守许可证。研究参考记录在 docs/UPSTREAM.md。
+- 每个主要实现阶段使用 code-reviewer；修复重要问题后构建并运行行为测试。
+- 数据序列化/写盘失败应通知用户，不得悄悄重置布局。写盘采用同目录临时文件和备份。
+- 临时数据只存 artifacts/test-*；完成后列明，删除仍须用户授权。
+
+
